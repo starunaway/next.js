@@ -7,18 +7,19 @@ use napi::{
     JsFunction,
 };
 use next_core::app_structure::{
-    find_app_dir, get_entrypoints as get_entrypoints_impl, Components, ComponentsVc, Entrypoint,
-    EntrypointsVc, LoaderTree, LoaderTreeVc, MetadataWithAltItem,
+    find_app_dir, get_entrypoints as get_entrypoints_impl, Components, Entrypoint, Entrypoints,
+    LoaderTree, MetadataWithAltItem,
 };
 use serde::{Deserialize, Serialize};
+use turbo_tasks::Vc;
 use turbopack_binding::{
     turbo::{
         tasks,
         tasks::{
-            debug::ValueDebugFormat, primitives::StringsVc, trace::TraceRawVcs, NothingVc,
-            TryJoinIterExt, TurboTasks, ValueToString,
+            debug::ValueDebugFormat, trace::TraceRawVcs, Nothing, TryJoinIterExt, TurboTasks,
+            ValueToString,
         },
-        tasks_fs::{DiskFileSystemVc, FileSystem, FileSystemPathVc, FileSystemVc},
+        tasks_fs::{DiskFileSystem, FileSystem, FileSystemPath},
         tasks_memory::MemoryBackend,
     },
     turbopack::core::PROJECT_FILESYSTEM_NAME,
@@ -27,9 +28,8 @@ use turbopack_binding::{
 use crate::register;
 
 #[tasks::function]
-async fn project_fs(project_dir: &str, watching: bool) -> Result<FileSystemVc> {
-    let disk_fs =
-        DiskFileSystemVc::new(PROJECT_FILESYSTEM_NAME.to_string(), project_dir.to_string());
+async fn project_fs(project_dir: &str, watching: bool) -> Result<Vc<Box<dyn FileSystem>>> {
+    let disk_fs = DiskFileSystem::new(PROJECT_FILESYSTEM_NAME.to_string(), project_dir.to_string());
     if watching {
         disk_fs.await?.start_watching_with_invalidation_reason()?;
     }
@@ -40,7 +40,7 @@ async fn project_fs(project_dir: &str, watching: bool) -> Result<FileSystemVc> {
 #[serde(rename_all = "camelCase")]
 struct LoaderTreeForJs {
     segment: String,
-    parallel_routes: HashMap<String, LoaderTreeForJsReadRef>,
+    parallel_routes: HashMap<String, ReadRef<LoaderTreeForJs>>,
     #[turbo_tasks(trace_ignore)]
     components: ComponentsForJs,
 }
@@ -48,8 +48,12 @@ struct LoaderTreeForJs {
 #[derive(PartialEq, Eq, Serialize, Deserialize, ValueDebugFormat, TraceRawVcs)]
 #[serde(rename_all = "camelCase")]
 enum EntrypointForJs {
-    AppPage { loader_tree: LoaderTreeForJsReadRef },
-    AppRoute { path: String },
+    AppPage {
+        loader_tree: ReadRef<LoaderTreeForJs>,
+    },
+    AppRoute {
+        path: String,
+    },
 }
 
 #[tasks::value(transparent)]
@@ -57,9 +61,12 @@ enum EntrypointForJs {
 struct EntrypointsForJs(HashMap<String, EntrypointForJs>);
 
 #[tasks::value(transparent)]
-struct OptionEntrypointsForJs(Option<EntrypointsForJsVc>);
+struct OptionEntrypointsForJs(Option<Vc<EntrypointsForJs>>);
 
-async fn fs_path_to_path(project_path: FileSystemPathVc, path: FileSystemPathVc) -> Result<String> {
+async fn fs_path_to_path(
+    project_path: Vc<FileSystemPath>,
+    path: Vc<FileSystemPath>,
+) -> Result<String> {
     match project_path.await?.get_path_to(&*path.await?) {
         None => Err(anyhow!(
             "Path {} is not inside of the project path {}",
@@ -120,8 +127,8 @@ enum MetadataForJsItem {
 }
 
 async fn prepare_components_for_js(
-    project_path: FileSystemPathVc,
-    components: ComponentsVc,
+    project_path: Vc<FileSystemPath>,
+    components: Vc<Components>,
 ) -> Result<ComponentsForJs> {
     let Components {
         page,
@@ -137,8 +144,8 @@ async fn prepare_components_for_js(
     let mut result = ComponentsForJs::default();
     async fn add(
         result: &mut Option<String>,
-        project_path: FileSystemPathVc,
-        value: &Option<FileSystemPathVc>,
+        project_path: Vc<FileSystemPath>,
+        value: &Option<Vc<FileSystemPath>>,
     ) -> Result<()> {
         if let Some(value) = value {
             *result = Some(fs_path_to_path(project_path, *value).await?);
@@ -155,7 +162,7 @@ async fn prepare_components_for_js(
     add(&mut result.route, project_path, route).await?;
     async fn add_meta<'a>(
         meta: &mut Vec<MetadataForJsItem>,
-        project_path: FileSystemPathVc,
+        project_path: Vc<FileSystemPath>,
         value: impl Iterator<Item = &'a MetadataWithAltItem>,
     ) -> Result<()> {
         let mut value = value.peekable();
@@ -199,9 +206,9 @@ async fn prepare_components_for_js(
 
 #[tasks::function]
 async fn prepare_loader_tree_for_js(
-    project_path: FileSystemPathVc,
-    loader_tree: LoaderTreeVc,
-) -> Result<LoaderTreeForJsVc> {
+    project_path: Vc<FileSystemPath>,
+    loader_tree: Vc<LoaderTree>,
+) -> Result<Vc<LoaderTreeForJs>> {
     let LoaderTree {
         segment,
         parallel_routes,
@@ -230,9 +237,9 @@ async fn prepare_loader_tree_for_js(
 
 #[tasks::function]
 async fn prepare_entrypoints_for_js(
-    project_path: FileSystemPathVc,
-    entrypoints: EntrypointsVc,
-) -> Result<EntrypointsForJsVc> {
+    project_path: Vc<FileSystemPath>,
+    entrypoints: Vc<Entrypoints>,
+) -> Result<Vc<EntrypointsForJs>> {
     let entrypoints = entrypoints
         .await?
         .iter()
@@ -254,7 +261,7 @@ async fn prepare_entrypoints_for_js(
         .await?
         .into_iter()
         .collect();
-    Ok(EntrypointsForJsVc::cell(entrypoints))
+    Ok(EntrypointsForJs::cell(entrypoints))
 }
 
 #[tasks::function]
@@ -263,8 +270,8 @@ async fn get_value(
     project_dir: &str,
     page_extensions: Vec<String>,
     watching: bool,
-) -> Result<OptionEntrypointsForJsVc> {
-    let page_extensions = StringsVc::cell(page_extensions);
+) -> Result<Vc<OptionEntrypointsForJs>> {
+    let page_extensions = Vc::cell(page_extensions);
     let fs = project_fs(root_dir, watching);
     let project_relative = project_dir.strip_prefix(root_dir).unwrap();
     let project_relative = project_relative
@@ -284,7 +291,7 @@ async fn get_value(
         None
     };
 
-    Ok(OptionEntrypointsForJsVc::cell(result))
+    Ok(OptionEntrypointsForJs::cell(result))
 }
 
 #[napi]
@@ -296,7 +303,7 @@ pub fn stream_entrypoints(
     func: JsFunction,
 ) -> napi::Result<()> {
     register();
-    let func: ThreadsafeFunction<Option<EntrypointsForJsReadRef>, ErrorStrategy::CalleeHandled> =
+    let func: ThreadsafeFunction<Option<ReadRef<EntrypointsForJs>>, ErrorStrategy::CalleeHandled> =
         func.create_threadsafe_function(0, |ctx| {
             let value = ctx.value;
             let value = serde_json::to_value(value)?;
@@ -327,7 +334,7 @@ pub fn stream_entrypoints(
                 func.call(Ok(None), ThreadsafeFunctionCallMode::NonBlocking);
             }
 
-            Ok(NothingVc::new().into())
+            Ok(Nothing::new().into())
         })
     });
     Ok(())

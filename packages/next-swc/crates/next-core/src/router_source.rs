@@ -1,49 +1,48 @@
 use anyhow::{anyhow, Context, Result};
 use futures::{Stream, TryStreamExt};
 use indexmap::IndexSet;
-use turbo_tasks::{primitives::StringVc, CompletionVc, CompletionsVc, Value};
+use turbo_tasks::{Completion, Completions, Value, Vc};
 use turbopack_binding::turbopack::{
     core::{
-        environment::ServerAddrVc,
-        introspect::{Introspectable, IntrospectableChildrenVc, IntrospectableVc},
+        environment::ServerAddr,
+        introspect::{Introspectable, IntrospectableChildren},
     },
     dev_server::source::{
         Body, ContentSource, ContentSourceContent, ContentSourceData, ContentSourceDataVary,
-        ContentSourceResultVc, ContentSourceVc, HeaderListVc, NeededData, ProxyResult,
-        RewriteBuilder,
+        ContentSourceResult, HeaderList, NeededData, ProxyResult, RewriteBuilder,
     },
-    node::execution_context::ExecutionContextVc,
+    node::execution_context::ExecutionContext,
 };
 
 use crate::{
-    app_structure::OptionAppDirVc,
-    next_config::NextConfigVc,
-    pages_structure::OptionPagesStructureVc,
+    app_structure::OptionAppDir,
+    next_config::NextConfig,
+    pages_structure::OptionPagesStructure,
     router::{route, RouterRequest, RouterResult},
 };
 
 #[turbo_tasks::value(shared)]
 pub struct NextRouterContentSource {
     /// A wrapped content source from which we will fetch assets.
-    inner: ContentSourceVc,
-    execution_context: ExecutionContextVc,
-    next_config: NextConfigVc,
-    server_addr: ServerAddrVc,
-    app_dir: OptionAppDirVc,
-    pages_structure: OptionPagesStructureVc,
+    inner: Vc<Box<dyn ContentSource>>,
+    execution_context: Vc<ExecutionContext>,
+    next_config: Vc<NextConfig>,
+    server_addr: Vc<ServerAddr>,
+    app_dir: Vc<OptionAppDir>,
+    pages_structure: Vc<OptionPagesStructure>,
 }
 
 #[turbo_tasks::value_impl]
-impl NextRouterContentSourceVc {
+impl NextRouterContentSource {
     #[turbo_tasks::function]
     pub fn new(
-        inner: ContentSourceVc,
-        execution_context: ExecutionContextVc,
-        next_config: NextConfigVc,
-        server_addr: ServerAddrVc,
-        app_dir: OptionAppDirVc,
-        pages_structure: OptionPagesStructureVc,
-    ) -> NextRouterContentSourceVc {
+        inner: Vc<Box<dyn ContentSource>>,
+        execution_context: Vc<ExecutionContext>,
+        next_config: Vc<NextConfig>,
+        server_addr: Vc<ServerAddr>,
+        app_dir: Vc<OptionAppDir>,
+        pages_structure: Vc<OptionPagesStructure>,
+    ) -> Vc<NextRouterContentSource> {
         NextRouterContentSource {
             inner,
             execution_context,
@@ -57,8 +56,8 @@ impl NextRouterContentSourceVc {
 }
 
 #[turbo_tasks::function]
-fn need_data(source: ContentSourceVc, path: &str) -> ContentSourceResultVc {
-    ContentSourceResultVc::need_data(
+fn need_data(source: Vc<Box<dyn ContentSource>>, path: String) -> Vc<ContentSourceResult> {
+    ContentSourceResult::need_data(
         NeededData {
             source,
             path: path.to_string(),
@@ -76,11 +75,11 @@ fn need_data(source: ContentSourceVc, path: &str) -> ContentSourceResultVc {
 
 #[turbo_tasks::function]
 fn routes_changed(
-    app_dir: OptionAppDirVc,
-    pages_structure: OptionPagesStructureVc,
-    next_config: NextConfigVc,
-) -> CompletionVc {
-    CompletionsVc::all(vec![
+    app_dir: Vc<OptionAppDir>,
+    pages_structure: Vc<OptionPagesStructure>,
+    next_config: Vc<NextConfig>,
+) -> Vc<Completion> {
+    Completions::all(vec![
         app_dir.routes_changed(next_config),
         pages_structure.routes_changed(),
     ])
@@ -90,11 +89,11 @@ fn routes_changed(
 impl ContentSource for NextRouterContentSource {
     #[turbo_tasks::function]
     async fn get(
-        self_vc: NextRouterContentSourceVc,
-        path: &str,
+        self: Vc<Self>,
+        path: String,
         data: Value<ContentSourceData>,
-    ) -> Result<ContentSourceResultVc> {
-        let this = self_vc.await?;
+    ) -> Result<Vc<ContentSourceResult>> {
+        let this = self.await?;
 
         // The next-dev server can currently run against projects as simple as
         // `index.js`. If this isn't a Next.js project, don't try to use the Next.js
@@ -112,7 +111,7 @@ impl ContentSource for NextRouterContentSource {
             body: Some(body),
             ..
         } = &*data else {
-            return Ok(need_data(self_vc.into(), path))
+            return Ok(need_data(self.into(), path))
         };
 
         // TODO: change router so we can stream the request body to it
@@ -157,13 +156,13 @@ impl ContentSource for NextRouterContentSource {
             RouterResult::Rewrite(data) => {
                 let mut rewrite = RewriteBuilder::new(data.url.clone()).content_source(this.inner);
                 if !data.headers.is_empty() {
-                    rewrite = rewrite.response_headers(HeaderListVc::new(data.headers.clone()));
+                    rewrite = rewrite.response_headers(HeaderList::new(data.headers.clone()));
                 }
-                ContentSourceResultVc::exact(
+                ContentSourceResult::exact(
                     ContentSourceContent::Rewrite(rewrite.build()).cell().into(),
                 )
             }
-            RouterResult::Middleware(data) => ContentSourceResultVc::exact(
+            RouterResult::Middleware(data) => ContentSourceResult::exact(
                 ContentSourceContent::HttpProxy(
                     ProxyResult {
                         status: data.status_code,
@@ -190,21 +189,22 @@ fn formated_query(query: &str) -> String {
 #[turbo_tasks::value_impl]
 impl Introspectable for NextRouterContentSource {
     #[turbo_tasks::function]
-    fn ty(&self) -> StringVc {
-        StringVc::cell("next router source".to_string())
+    fn ty(&self) -> Vc<String> {
+        Vc::cell("next router source".to_string())
     }
 
     #[turbo_tasks::function]
-    fn details(&self) -> StringVc {
-        StringVc::cell("handles routing by letting Next.js handle the routing.".to_string())
+    fn details(&self) -> Vc<String> {
+        Vc::cell("handles routing by letting Next.js handle the routing.".to_string())
     }
 
     #[turbo_tasks::function]
-    async fn children(&self) -> Result<IntrospectableChildrenVc> {
+    async fn children(&self) -> Result<Vc<IntrospectableChildren>> {
         let mut children = IndexSet::new();
-        if let Some(inner) = IntrospectableVc::resolve_from(self.inner).await? {
-            children.insert((StringVc::cell("inner".to_string()), inner));
+        if let Some(inner) = Vc::try_resolve_sidecast::<Box<dyn Introspectable>>(self.inner).await?
+        {
+            children.insert((Vc::cell("inner".to_string()), inner));
         }
-        Ok(IntrospectableChildrenVc::cell(children))
+        Ok(Vc::cell(children))
     }
 }

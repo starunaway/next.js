@@ -1,16 +1,13 @@
 use anyhow::Result;
 use indexmap::indexmap;
-use turbo_tasks::Value;
+use turbo_tasks::{Value, Vc};
 use turbopack_binding::turbopack::{
     core::{
-        asset::AssetVc,
+        asset::Asset,
         context::AssetContext,
-        reference_type::{EntryReferenceSubType, InnerAssetsVc, ReferenceType},
+        reference_type::{EntryReferenceSubType, InnerAssets, ReferenceType},
     },
-    turbopack::{
-        transition::{Transition, TransitionVc},
-        ModuleAssetContextVc,
-    },
+    turbopack::{transition::Transition, ModuleAssetContext},
 };
 
 use crate::embed_js::next_asset;
@@ -24,17 +21,17 @@ pub struct NextServerToClientTransition {
 impl Transition for NextServerToClientTransition {
     #[turbo_tasks::function]
     async fn process(
-        self_vc: NextServerToClientTransitionVc,
-        asset: AssetVc,
-        context: ModuleAssetContextVc,
+        self: Vc<Self>,
+        asset: Vc<Box<dyn Asset>>,
+        context: Vc<ModuleAssetContext>,
         _reference_type: Value<ReferenceType>,
-    ) -> Result<AssetVc> {
-        let internal_asset = next_asset(if self_vc.await?.ssr {
+    ) -> Result<Vc<Box<dyn Asset>>> {
+        let internal_asset = next_asset(if self.await?.ssr {
             "entry/app/server-to-client-ssr.tsx"
         } else {
             "entry/app/server-to-client.tsx"
         });
-        let context = self_vc.process_context(context);
+        let context = self.process_context(context);
         let client_chunks = context.with_transition("next-client-chunks").process(
             asset,
             Value::new(ReferenceType::Entry(
@@ -49,7 +46,7 @@ impl Transition for NextServerToClientTransition {
         );
         Ok(context.process(
             internal_asset,
-            Value::new(ReferenceType::Internal(InnerAssetsVc::cell(indexmap! {
+            Value::new(ReferenceType::Internal(Vc::cell(indexmap! {
                 "CLIENT_MODULE".to_string() => client_module,
                 "CLIENT_CHUNKS".to_string() => client_chunks,
             }))),

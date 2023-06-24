@@ -4,28 +4,24 @@ use mime::{APPLICATION_JAVASCRIPT_UTF_8, APPLICATION_JSON};
 use serde::Serialize;
 use turbo_tasks::{
     graph::{GraphTraversal, NonDeterministic},
-    primitives::{StringReadRef, StringVc, StringsVc},
+    ReadRef, Vc,
 };
 use turbopack_binding::{
     turbo::{tasks::TryJoinIterExt, tasks_fs::File},
     turbopack::{
-        core::{
-            asset::AssetContentVc,
-            introspect::{Introspectable, IntrospectableVc},
-        },
+        core::{asset::AssetContent, introspect::Introspectable},
         dev_server::source::{
-            ContentSource, ContentSourceContentVc, ContentSourceData, ContentSourceResultVc,
-            ContentSourceVc,
+            ContentSource, ContentSourceContent, ContentSourceData, ContentSourceResult,
         },
         node::render::{
-            node_api_source::NodeApiContentSourceVc, rendered_source::NodeRenderContentSourceVc,
+            node_api_source::NodeApiContentSource, rendered_source::NodeRenderContentSource,
         },
     },
 };
 
 use crate::{
     embed_js::next_js_file,
-    next_config::{NextConfigVc, RewritesReadRef},
+    next_config::{NextConfig, Rewrites},
     util::get_asset_path_from_pathname,
 };
 
@@ -33,27 +29,29 @@ use crate::{
 /// `_devMiddlewareManifest.json` which are used for client side navigation.
 #[turbo_tasks::value(shared)]
 pub struct DevManifestContentSource {
-    pub page_roots: Vec<ContentSourceVc>,
-    pub next_config: NextConfigVc,
+    pub page_roots: Vec<Vc<Box<dyn ContentSource>>>,
+    pub next_config: Vc<NextConfig>,
 }
 
 #[turbo_tasks::value_impl]
-impl DevManifestContentSourceVc {
+impl DevManifestContentSource {
     /// Recursively find all routes in the `page_roots` content sources.
     #[turbo_tasks::function]
-    async fn find_routes(self) -> Result<StringsVc> {
+    async fn find_routes(self: Vc<Self>) -> Result<Vc<Vec<String>>> {
         let this = &*self.await?;
 
         async fn content_source_to_pathname(
-            content_source: ContentSourceVc,
-        ) -> Result<Option<StringReadRef>> {
+            content_source: Vc<Box<dyn ContentSource>>,
+        ) -> Result<Option<ReadRef<String>>> {
             // TODO This shouldn't use casts but an public api instead
-            if let Some(api_source) = NodeApiContentSourceVc::resolve_from(content_source).await? {
+            if let Some(api_source) =
+                Vc::try_resolve_downcast_type::<NodeApiContentSource>(content_source).await?
+            {
                 return Ok(Some(api_source.get_pathname().await?));
             }
 
             if let Some(page_source) =
-                NodeRenderContentSourceVc::resolve_from(content_source).await?
+                Vc::try_resolve_downcast_type::<NodeRenderContentSource>(content_source).await?
             {
                 return Ok(Some(page_source.get_pathname().await?));
             }
@@ -62,8 +60,8 @@ impl DevManifestContentSourceVc {
         }
 
         async fn get_content_source_children(
-            content_source: ContentSourceVc,
-        ) -> Result<Vec<ContentSourceVc>> {
+            content_source: Vc<Box<dyn ContentSource>>,
+        ) -> Result<Vec<Vc<Box<dyn ContentSource>>>> {
             Ok(content_source.get_children().await?.clone_value())
         }
 
@@ -84,13 +82,13 @@ impl DevManifestContentSourceVc {
         routes.sort_by_cached_key(|s| s.split('/').map(PageSortKey::from).collect::<Vec<_>>());
         routes.dedup();
 
-        Ok(StringsVc::cell(routes))
+        Ok(Vc::cell(routes))
     }
 
     /// Recursively find all pages in the `page_roots` content sources
     /// (excluding api routes).
     #[turbo_tasks::function]
-    async fn find_pages(self) -> Result<StringsVc> {
+    async fn find_pages(self: Vc<Self>) -> Result<Vc<Vec<String>>> {
         let routes = &*self.find_routes().await?;
 
         // we don't need to sort as it's already sorted by `find_routes`
@@ -100,12 +98,12 @@ impl DevManifestContentSourceVc {
             .cloned()
             .collect();
 
-        Ok(StringsVc::cell(pages))
+        Ok(Vc::cell(pages))
     }
 
     /// Create a build manifest with all pages.
     #[turbo_tasks::function]
-    async fn create_build_manifest(self) -> Result<StringVc> {
+    async fn create_build_manifest(self: Vc<Self>) -> Result<Vc<String>> {
         let this = &*self.await?;
 
         let sorted_pages = &*self.find_pages().await?;
@@ -136,7 +134,7 @@ impl DevManifestContentSourceVc {
             .to_str()?
             .replace("$$MANIFEST$$", &serde_json::to_string(&manifest)?);
 
-        Ok(StringVc::cell(manifest))
+        Ok(Vc::cell(manifest))
     }
 }
 
@@ -144,7 +142,7 @@ impl DevManifestContentSourceVc {
 #[serde(rename_all = "camelCase")]
 struct BuildManifest<'a> {
     #[serde(rename = "__rewrites")]
-    rewrites: RewritesReadRef,
+    rewrites: ReadRef<Rewrites>,
     sorted_pages: &'a Vec<String>,
 
     #[serde(flatten)]
@@ -155,13 +153,13 @@ struct BuildManifest<'a> {
 impl ContentSource for DevManifestContentSource {
     #[turbo_tasks::function]
     async fn get(
-        self_vc: DevManifestContentSourceVc,
-        path: &str,
+        self: Vc<Self>,
+        path: String,
         _data: turbo_tasks::Value<ContentSourceData>,
-    ) -> Result<ContentSourceResultVc> {
+    ) -> Result<Vc<ContentSourceResult>> {
         let manifest_file = match path {
             "_next/static/development/_devPagesManifest.json" => {
-                let pages = &*self_vc.find_routes().await?;
+                let pages = &*self.find_routes().await?;
 
                 File::from(serde_json::to_string(&serde_json::json!({
                     "pages": pages,
@@ -169,7 +167,7 @@ impl ContentSource for DevManifestContentSource {
                 .with_content_type(APPLICATION_JSON)
             }
             "_next/static/development/_buildManifest.js" => {
-                let build_manifest = &*self_vc.create_build_manifest().await?;
+                let build_manifest = &*self.create_build_manifest().await?;
 
                 File::from(build_manifest.as_str()).with_content_type(APPLICATION_JAVASCRIPT_UTF_8)
             }
@@ -181,26 +179,25 @@ impl ContentSource for DevManifestContentSource {
                 // respond with an empty `MiddlewareMatcher[]`.
                 File::from("[]").with_content_type(APPLICATION_JSON)
             }
-            _ => return Ok(ContentSourceResultVc::not_found()),
+            _ => return Ok(ContentSourceResult::not_found()),
         };
 
-        Ok(ContentSourceResultVc::exact(
-            ContentSourceContentVc::static_content(AssetContentVc::from(manifest_file).into())
-                .into(),
-        ))
+        Ok(ContentSourceResult::exact(Vc::upcast(
+            ContentSourceContent::static_content(Vc::upcast(AssetContent::from(manifest_file))),
+        )))
     }
 }
 
 #[turbo_tasks::value_impl]
 impl Introspectable for DevManifestContentSource {
     #[turbo_tasks::function]
-    fn ty(&self) -> StringVc {
-        StringVc::cell("dev manifest source".to_string())
+    fn ty(&self) -> Vc<String> {
+        Vc::cell("dev manifest source".to_string())
     }
 
     #[turbo_tasks::function]
-    fn details(&self) -> StringVc {
-        StringVc::cell(
+    fn details(&self) -> Vc<String> {
+        Vc::cell(
             "provides _devPagesManifest.json, _buildManifest.js and _devMiddlewareManifest.json."
                 .to_string(),
         )

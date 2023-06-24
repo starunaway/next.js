@@ -1,10 +1,11 @@
 use anyhow::Result;
 use next_transform_strip_page_exports::ExportFilter;
+use turbo_tasks::Vc;
 use turbopack_binding::turbopack::turbopack::module_options::ModuleRule;
 
 use crate::{
     next_client::context::ClientContextType,
-    next_config::NextConfigVc,
+    next_config::NextConfig,
     next_shared::transforms::{
         get_next_dynamic_transform_rule, get_next_font_transform_rule, get_next_image_rule,
         get_next_modularize_imports_rule, get_next_pages_transforms_rule,
@@ -14,7 +15,7 @@ use crate::{
 /// Returns a list of module rules which apply client-side, Next.js-specific
 /// transforms.
 pub async fn get_next_client_transforms_rules(
-    next_config: NextConfigVc,
+    next_config: Vc<NextConfig>,
     context_ty: ClientContextType,
 ) -> Result<Vec<ModuleRule>> {
     let mut rules = vec![];

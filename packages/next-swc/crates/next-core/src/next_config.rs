@@ -2,29 +2,25 @@ use anyhow::{Context, Result};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use turbo_tasks::{
-    primitives::{BoolVc, JsonValueVc, StringVc, StringsVc},
-    trace::TraceRawVcs,
-    CompletionVc, Value,
-};
+use turbo_tasks::{trace::TraceRawVcs, Completion, Value, Vc};
 use turbo_tasks_fs::json::parse_json_with_source_context;
 use turbopack_binding::{
-    turbo::{tasks_env::EnvMapVc, tasks_fs::FileSystemPathVc},
+    turbo::{tasks_env::EnvMap, tasks_fs::FileSystemPath},
     turbopack::{
         core::{
             asset::Asset,
             changed::any_content_changed,
             chunk::ChunkingContext,
             context::AssetContext,
-            ident::AssetIdentVc,
-            issue::{Issue, IssueContextExt, IssueSeverity, IssueSeverityVc, IssueVc},
-            reference_type::{EntryReferenceSubType, InnerAssetsVc, ReferenceType},
+            ident::AssetIdent,
+            issue::{Issue, IssueContextExt, IssueSeverity},
+            reference_type::{EntryReferenceSubType, InnerAssets, ReferenceType},
             resolve::{
                 find_context_file,
                 options::{ImportMap, ImportMapping},
-                FindContextFileResult, ResolveAliasMap, ResolveAliasMapVc,
+                FindContextFileResult, ResolveAliasMap,
             },
-            source_asset::SourceAssetVc,
+            source_asset::SourceAsset,
         },
         ecmascript_plugin::transform::{
             emotion::EmotionTransformConfig, relay::RelayConfig,
@@ -33,12 +29,12 @@ use turbopack_binding::{
         node::{
             debug::should_debug,
             evaluate::evaluate,
-            execution_context::{ExecutionContext, ExecutionContextVc},
-            transforms::webpack::{WebpackLoaderItem, WebpackLoaderItemsVc},
+            execution_context::ExecutionContext,
+            transforms::webpack::{WebpackLoaderItem, WebpackLoaderItems},
         },
         turbopack::{
             evaluate_context::node_evaluate_asset_context,
-            module_options::{LoaderRuleItem, OptionWebpackRulesVc, WebpackRulesVc},
+            module_options::{LoaderRuleItem, OptionWebpackRules, WebpackRules},
         },
     },
 };
@@ -483,10 +479,10 @@ pub enum RemoveConsoleConfig {
 }
 
 #[turbo_tasks::value_impl]
-impl NextConfigVc {
+impl NextConfig {
     #[turbo_tasks::function]
-    pub async fn server_component_externals(self) -> Result<StringsVc> {
-        Ok(StringsVc::cell(
+    pub async fn server_component_externals(self: Vc<Self>) -> Result<Vc<Vec<String>>> {
+        Ok(Vc::cell(
             self.await?
                 .experimental
                 .server_components_external_packages
@@ -497,8 +493,8 @@ impl NextConfigVc {
     }
 
     #[turbo_tasks::function]
-    pub async fn app_dir(self) -> Result<BoolVc> {
-        Ok(BoolVc::cell(
+    pub async fn app_dir(self: Vc<Self>) -> Result<Vc<bool>> {
+        Ok(Vc::cell(
             self.await?
                 .experimental
                 .app_dir
@@ -509,7 +505,7 @@ impl NextConfigVc {
     }
 
     #[turbo_tasks::function]
-    pub async fn env(self) -> Result<EnvMapVc> {
+    pub async fn env(self: Vc<Self>) -> Result<Vc<EnvMap>> {
         // The value expected for env is Record<String, String>, but config itself
         // allows arbitary object (https://github.com/vercel/next.js/blob/25ba8a74b7544dfb6b30d1b67c47b9cb5360cb4e/packages/next/src/server/config-schema.ts#L203)
         // then stringifies it. We do the interop here as well.
@@ -530,44 +526,44 @@ impl NextConfigVc {
             })
             .collect();
 
-        Ok(EnvMapVc::cell(env))
+        Ok(Vc::cell(env))
     }
 
     #[turbo_tasks::function]
-    pub async fn image_config(self) -> Result<ImageConfigVc> {
+    pub async fn image_config(self: Vc<Self>) -> Result<Vc<ImageConfig>> {
         Ok(self.await?.images.clone().cell())
     }
 
     #[turbo_tasks::function]
-    pub async fn page_extensions(self) -> Result<StringsVc> {
-        Ok(StringsVc::cell(self.await?.page_extensions.clone()))
+    pub async fn page_extensions(self: Vc<Self>) -> Result<Vc<Vec<String>>> {
+        Ok(Vc::cell(self.await?.page_extensions.clone()))
     }
 
     #[turbo_tasks::function]
-    pub async fn rewrites(self) -> Result<RewritesVc> {
+    pub async fn rewrites(self: Vc<Self>) -> Result<Vc<Rewrites>> {
         Ok(self.await?.rewrites.clone().cell())
     }
 
     #[turbo_tasks::function]
-    pub async fn transpile_packages(self) -> Result<StringsVc> {
-        Ok(StringsVc::cell(
+    pub async fn transpile_packages(self: Vc<Self>) -> Result<Vc<Vec<String>>> {
+        Ok(Vc::cell(
             self.await?.transpile_packages.clone().unwrap_or_default(),
         ))
     }
 
     #[turbo_tasks::function]
-    pub async fn webpack_rules(self) -> Result<OptionWebpackRulesVc> {
+    pub async fn webpack_rules(self: Vc<Self>) -> Result<Vc<OptionWebpackRules>> {
         let this = self.await?;
         let Some(turbo_rules) = this.experimental.turbo.as_ref().and_then(|t| t.rules.as_ref()) else {
-            return Ok(OptionWebpackRulesVc::cell(None));
+            return Ok(Vc::cell(None));
         };
         if turbo_rules.is_empty() {
-            return Ok(OptionWebpackRulesVc::cell(None));
+            return Ok(Vc::cell(None));
         }
         let mut rules = IndexMap::new();
         for (ext, rule) in turbo_rules {
-            fn transform_loaders(loaders: &[LoaderItem]) -> WebpackLoaderItemsVc {
-                WebpackLoaderItemsVc::cell(
+            fn transform_loaders(loaders: &[LoaderItem]) -> Vc<WebpackLoaderItems> {
+                Vc::cell(
                     loaders
                         .iter()
                         .map(|item| match item {
@@ -593,38 +589,34 @@ impl NextConfigVc {
 
             rules.insert(ext.clone(), rule);
         }
-        Ok(OptionWebpackRulesVc::cell(Some(WebpackRulesVc::cell(
-            rules,
-        ))))
+        Ok(Vc::cell(Some(Vc::cell(rules))))
     }
 
     #[turbo_tasks::function]
-    pub async fn resolve_alias_options(self) -> Result<ResolveAliasMapVc> {
+    pub async fn resolve_alias_options(self: Vc<Self>) -> Result<Vc<ResolveAliasMap>> {
         let this = self.await?;
         let Some(resolve_alias) = this.experimental.turbo.as_ref().and_then(|t| t.resolve_alias.as_ref()) else {
-            return Ok(ResolveAliasMapVc::cell(ResolveAliasMap::default()));
+            return Ok(ResolveAliasMap::cell(ResolveAliasMap::default()));
         };
         let alias_map: ResolveAliasMap = resolve_alias.try_into()?;
         Ok(alias_map.cell())
     }
 
     #[turbo_tasks::function]
-    pub async fn mdx_rs(self) -> Result<BoolVc> {
-        Ok(BoolVc::cell(
-            self.await?.experimental.mdx_rs.unwrap_or(false),
-        ))
+    pub async fn mdx_rs(self: Vc<Self>) -> Result<Vc<bool>> {
+        Ok(Vc::cell(self.await?.experimental.mdx_rs.unwrap_or(false)))
     }
 
     #[turbo_tasks::function]
-    pub async fn sass_config(self) -> Result<JsonValueVc> {
-        Ok(JsonValueVc::cell(
+    pub async fn sass_config(self: Vc<Self>) -> Result<Vc<JsonValue>> {
+        Ok(Vc::cell(
             self.await?.sass_options.clone().unwrap_or_default(),
         ))
     }
 }
 
-fn next_configs() -> StringsVc {
-    StringsVc::cell(
+fn next_configs() -> Vc<Vec<String>> {
+    Vc::cell(
         ["next.config.mjs", "next.config.js"]
             .into_iter()
             .map(ToOwned::to_owned)
@@ -633,7 +625,7 @@ fn next_configs() -> StringsVc {
 }
 
 #[turbo_tasks::function]
-pub async fn load_next_config(execution_context: ExecutionContextVc) -> Result<NextConfigVc> {
+pub async fn load_next_config(execution_context: Vc<ExecutionContext>) -> Result<Vc<NextConfig>> {
     let ExecutionContext { project_path, .. } = *execution_context.await?;
     let find_config_result = find_context_file(project_path, next_configs());
     let config_file = match &*find_config_result.await? {
@@ -647,9 +639,9 @@ pub async fn load_next_config(execution_context: ExecutionContextVc) -> Result<N
 
 #[turbo_tasks::function]
 pub async fn load_next_config_internal(
-    execution_context: ExecutionContextVc,
-    config_file: Option<FileSystemPathVc>,
-) -> Result<NextConfigVc> {
+    execution_context: Vc<ExecutionContext>,
+    config_file: Option<Vc<FileSystemPath>>,
+) -> Result<Vc<NextConfig>> {
     let ExecutionContext {
         project_path,
         chunking_context,
@@ -663,14 +655,14 @@ pub async fn load_next_config_internal(
     import_map.insert_wildcard_alias("styled-jsx/", ImportMapping::External(None).into());
 
     let context = node_evaluate_asset_context(execution_context, Some(import_map.cell()), None);
-    let config_asset = config_file.map(SourceAssetVc::new);
+    let config_asset = config_file.map(SourceAsset::new);
 
-    let config_changed = config_asset.map_or_else(CompletionVc::immutable, |config_asset| {
+    let config_changed = config_asset.map_or_else(Completion::immutable, |config_asset| {
         // This invalidates the execution when anything referenced by the config file
         // changes
         let config_asset = context.process(
             config_asset.into(),
-            Value::new(ReferenceType::Internal(InnerAssetsVc::empty())),
+            Value::new(ReferenceType::Internal(InnerAssets::empty())),
         );
         any_content_changed(config_asset)
     });
@@ -682,7 +674,7 @@ pub async fn load_next_config_internal(
         load_next_config_asset,
         project_path,
         env,
-        config_asset.map_or_else(|| AssetIdentVc::from_path(project_path), |c| c.ident()),
+        config_asset.map_or_else(|| AssetIdent::from_path(project_path), |c| c.ident()),
         context,
         chunking_context.with_layer("next_config"),
         None,
@@ -705,11 +697,11 @@ pub async fn load_next_config_internal(
                 new_name: "experimental.turbo.rules".to_string(),
                 description: "The new option is similar, but the key should be a glob instead of \
                               an extension.
-Example: loaders: { \".mdx\": [\"mdx-loader\"] } -> rules: { \"*.mdx\": [\"mdx-loader\"] }"
+            Example: loaders: { \".mdx\": [\"mdx-loader\"] } -> rules: { \"*.mdx\": \
+                              [\"mdx-loader\"] }"
                     .to_string(),
             }
             .cell()
-            .as_issue()
             .emit()
         }
     }
@@ -718,8 +710,8 @@ Example: loaders: { \".mdx\": [\"mdx-loader\"] } -> rules: { \"*.mdx\": [\"mdx-l
 }
 
 #[turbo_tasks::function]
-pub async fn has_next_config(context: FileSystemPathVc) -> Result<BoolVc> {
-    Ok(BoolVc::cell(!matches!(
+pub async fn has_next_config(context: Vc<FileSystemPath>) -> Result<Vc<bool>> {
+    Ok(Vc::cell(!matches!(
         *find_context_file(context, next_configs()).await?,
         FindContextFileResult::NotFound(_)
     )))
@@ -727,7 +719,7 @@ pub async fn has_next_config(context: FileSystemPathVc) -> Result<BoolVc> {
 
 #[turbo_tasks::value]
 struct OutdatedConfigIssue {
-    path: FileSystemPathVc,
+    path: Vc<FileSystemPath>,
     old_name: String,
     new_name: String,
     description: String,
@@ -736,30 +728,30 @@ struct OutdatedConfigIssue {
 #[turbo_tasks::value_impl]
 impl Issue for OutdatedConfigIssue {
     #[turbo_tasks::function]
-    fn severity(&self) -> IssueSeverityVc {
+    fn severity(&self) -> Vc<IssueSeverity> {
         IssueSeverity::Error.into()
     }
 
     #[turbo_tasks::function]
-    fn category(&self) -> StringVc {
-        StringVc::cell("config".to_string())
+    fn category(&self) -> Vc<String> {
+        Vc::cell("config".to_string())
     }
 
     #[turbo_tasks::function]
-    fn context(&self) -> FileSystemPathVc {
+    fn context(&self) -> Vc<FileSystemPath> {
         self.path
     }
 
     #[turbo_tasks::function]
-    fn title(&self) -> StringVc {
-        StringVc::cell(format!(
+    fn title(&self) -> Vc<String> {
+        Vc::cell(format!(
             "\"{}\" has been replaced by \"{}\"",
             self.old_name, self.new_name
         ))
     }
 
     #[turbo_tasks::function]
-    fn description(&self) -> StringVc {
-        StringVc::cell(self.description.to_string())
+    fn description(&self) -> Vc<String> {
+        Vc::cell(self.description.to_string())
     }
 }

@@ -1,42 +1,40 @@
 use anyhow::{bail, Result};
 use next_core::{
     create_page_loader_entry_asset,
-    turbopack::core::{asset::AssetsVc, chunk::EvaluatableAssetsVc},
+    turbopack::core::{asset::Assets, chunk::EvaluatableAssets},
 };
+use turbo_tasks::Vc;
 use turbopack_binding::{
-    turbo::{
-        tasks::{primitives::StringVc, Value},
-        tasks_fs::FileSystemPathVc,
-    },
+    turbo::{tasks::Value, tasks_fs::FileSystemPath},
     turbopack::{
         core::{
-            asset::AssetVc,
-            chunk::{ChunkableAsset, ChunkingContext, ChunkingContextVc},
-            context::{AssetContext, AssetContextVc},
+            asset::Asset,
+            chunk::{ChunkableAsset, ChunkingContext},
+            context::AssetContext,
             reference_type::ReferenceType,
         },
-        dev::DevChunkingContextVc,
-        ecmascript::EcmascriptModuleAssetVc,
+        dev::DevChunkingContext,
+        ecmascript::EcmascriptModuleAsset,
     },
 };
 
 #[turbo_tasks::value]
 pub(crate) struct PagesBuildClientContext {
-    project_root: FileSystemPathVc,
-    client_root: FileSystemPathVc,
-    client_asset_context: AssetContextVc,
-    client_runtime_entries: EvaluatableAssetsVc,
+    project_root: Vc<FileSystemPath>,
+    client_root: Vc<FileSystemPath>,
+    client_asset_context: Vc<Box<dyn AssetContext>>,
+    client_runtime_entries: Vc<EvaluatableAssets>,
 }
 
 #[turbo_tasks::value_impl]
-impl PagesBuildClientContextVc {
+impl PagesBuildClientContext {
     #[turbo_tasks::function]
     pub fn new(
-        project_root: FileSystemPathVc,
-        client_root: FileSystemPathVc,
-        client_asset_context: AssetContextVc,
-        client_runtime_entries: EvaluatableAssetsVc,
-    ) -> PagesBuildClientContextVc {
+        project_root: Vc<FileSystemPath>,
+        client_root: Vc<FileSystemPath>,
+        client_asset_context: Vc<Box<dyn AssetContext>>,
+        client_runtime_entries: Vc<EvaluatableAssets>,
+    ) -> Vc<PagesBuildClientContext> {
         PagesBuildClientContext {
             project_root,
             client_root,
@@ -47,10 +45,10 @@ impl PagesBuildClientContextVc {
     }
 
     #[turbo_tasks::function]
-    async fn client_chunking_context(self) -> Result<ChunkingContextVc> {
+    async fn client_chunking_context(self: Vc<Self>) -> Result<Vc<Box<dyn ChunkingContext>>> {
         let this = self.await?;
 
-        Ok(DevChunkingContextVc::builder(
+        Ok(DevChunkingContext::builder(
             this.project_root,
             this.client_root,
             this.client_root.join("static/chunks"),
@@ -62,18 +60,18 @@ impl PagesBuildClientContextVc {
 
     #[turbo_tasks::function]
     pub async fn client_chunk(
-        self,
-        asset: AssetVc,
-        pathname: StringVc,
+        self: Vc<Self>,
+        asset: Vc<Box<dyn Asset>>,
+        pathname: Vc<String>,
         reference_type: Value<ReferenceType>,
-    ) -> Result<AssetsVc> {
+    ) -> Result<Vc<Assets>> {
         let this = self.await?;
 
         let client_asset_page = this.client_asset_context.process(asset, reference_type);
         let client_asset_page =
             create_page_loader_entry_asset(this.client_asset_context, client_asset_page, pathname);
 
-        let Some(client_module_asset) = EcmascriptModuleAssetVc::resolve_from(client_asset_page).await? else {
+        let Some(client_module_asset) = Vc::try_resolve_downcast_type::<EcmascriptModuleAsset>(client_asset_page).await? else {
             bail!("Expected an EcmaScript module asset");
         };
 

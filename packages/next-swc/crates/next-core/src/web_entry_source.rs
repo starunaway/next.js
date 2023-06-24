@@ -1,32 +1,30 @@
 use anyhow::{anyhow, Result};
+use turbo_tasks::Vc;
 use turbopack_binding::{
     turbo::{
         tasks::{TryJoinIterExt, Value},
-        tasks_fs::FileSystemPathVc,
+        tasks_fs::FileSystemPath,
     },
     turbopack::{
         core::{
-            chunk::ChunkableAssetVc,
+            chunk::ChunkableAsset,
             compile_time_defines,
-            compile_time_info::{
-                CompileTimeDefines, CompileTimeDefinesVc, CompileTimeInfo, CompileTimeInfoVc,
-                FreeVarReferencesVc,
-            },
+            compile_time_info::{CompileTimeDefines, CompileTimeInfo, FreeVarReferences},
             environment::{
-                BrowserEnvironment, EnvironmentIntention, EnvironmentVc, ExecutionEnvironment,
+                BrowserEnvironment, Environment, EnvironmentIntention, ExecutionEnvironment,
             },
             free_var_references,
             reference_type::{EntryReferenceSubType, ReferenceType},
-            resolve::{origin::PlainResolveOriginVc, parse::RequestVc},
-            source_asset::SourceAssetVc,
+            resolve::{origin::PlainResolveOrigin, parse::Request},
+            source_asset::SourceAsset,
         },
         dev::react_refresh::assert_can_resolve_react_refresh,
         dev_server::{
-            html::DevHtmlAssetVc,
-            source::{asset_graph::AssetGraphContentSourceVc, ContentSourceVc},
+            html::DevHtmlAsset,
+            source::{asset_graph::AssetGraphContentSource, ContentSource},
         },
-        node::execution_context::ExecutionContextVc,
-        turbopack::ecmascript::EcmascriptModuleAssetVc,
+        node::execution_context::ExecutionContext,
+        turbopack::ecmascript::EcmascriptModuleAsset,
     },
 };
 
@@ -38,9 +36,9 @@ use crate::{
             get_client_asset_context, get_client_chunking_context,
             get_client_resolve_options_context, ClientContextType,
         },
-        RuntimeEntriesVc, RuntimeEntry,
+        RuntimeEntries, RuntimeEntry,
     },
-    next_config::NextConfigVc,
+    next_config::NextConfig,
 };
 
 fn defines() -> CompileTimeDefines {
@@ -51,18 +49,18 @@ fn defines() -> CompileTimeDefines {
 }
 
 #[turbo_tasks::function]
-fn web_defines() -> CompileTimeDefinesVc {
+fn web_defines() -> Vc<CompileTimeDefines> {
     defines().cell()
 }
 
 #[turbo_tasks::function]
-async fn web_free_vars() -> Result<FreeVarReferencesVc> {
+async fn web_free_vars() -> Result<Vc<FreeVarReferences>> {
     Ok(free_var_references!(..defines().into_iter()).cell())
 }
 
 #[turbo_tasks::function]
-pub fn get_compile_time_info(browserslist_query: &str) -> CompileTimeInfoVc {
-    CompileTimeInfo::builder(EnvironmentVc::new(
+pub fn get_compile_time_info(browserslist_query: String) -> Vc<CompileTimeInfo> {
+    CompileTimeInfo::builder(Environment::new(
         Value::new(ExecutionEnvironment::Browser(
             BrowserEnvironment {
                 dom: true,
@@ -81,12 +79,12 @@ pub fn get_compile_time_info(browserslist_query: &str) -> CompileTimeInfoVc {
 
 #[turbo_tasks::function]
 async fn get_web_runtime_entries(
-    project_root: FileSystemPathVc,
+    project_root: Vc<FileSystemPath>,
     ty: Value<ClientContextType>,
     mode: NextMode,
-    next_config: NextConfigVc,
-    execution_context: ExecutionContextVc,
-) -> Result<RuntimeEntriesVc> {
+    next_config: Vc<NextConfig>,
+    execution_context: Vc<ExecutionContext>,
+) -> Result<Vc<RuntimeEntries>> {
     let mut runtime_entries = vec![];
 
     let resolve_options_context =
@@ -104,23 +102,25 @@ async fn get_web_runtime_entries(
     };
 
     runtime_entries.push(
-        RuntimeEntry::Source(SourceAssetVc::new(next_js_file_path("dev/bootstrap.ts")).into())
-            .cell(),
+        RuntimeEntry::Source(Vc::upcast(SourceAsset::new(next_js_file_path(
+            "dev/bootstrap.ts",
+        ))))
+        .cell(),
     );
 
-    Ok(RuntimeEntriesVc::cell(runtime_entries))
+    Ok(Vc::cell(runtime_entries))
 }
 
 #[turbo_tasks::function]
 pub async fn create_web_entry_source(
-    project_root: FileSystemPathVc,
-    execution_context: ExecutionContextVc,
-    entry_requests: Vec<RequestVc>,
-    client_root: FileSystemPathVc,
+    project_root: Vc<FileSystemPath>,
+    execution_context: Vc<ExecutionContext>,
+    entry_requests: Vec<Vc<Request>>,
+    client_root: Vc<FileSystemPath>,
     eager_compile: bool,
-    browserslist_query: &str,
-    next_config: NextConfigVc,
-) -> Result<ContentSourceVc> {
+    browserslist_query: String,
+    next_config: Vc<NextConfig>,
+) -> Result<Vc<Box<dyn ContentSource>>> {
     let ty = Value::new(ClientContextType::Other);
     let mode = NextMode::Development;
     let compile_time_info = get_compile_time_info(browserslist_query);
@@ -142,7 +142,7 @@ pub async fn create_web_entry_source(
 
     let runtime_entries = entries.resolve_entries(context);
 
-    let origin = PlainResolveOriginVc::new(context, project_root.join("_")).as_resolve_origin();
+    let origin = Vc::upcast(PlainResolveOrigin::new(context, project_root.join("_")));
     let entries = entry_requests
         .into_iter()
         .map(|request| async move {
@@ -161,13 +161,17 @@ pub async fn create_web_entry_source(
         .into_iter()
         .flatten()
         .map(|module| async move {
-            if let Some(ecmascript) = EcmascriptModuleAssetVc::resolve_from(module).await? {
+            if let Some(ecmascript) =
+                Vc::try_resolve_downcast_type::<EcmascriptModuleAsset>(module).await?
+            {
                 Ok((
                     ecmascript.into(),
                     chunking_context,
                     Some(runtime_entries.with_entry(ecmascript.into())),
                 ))
-            } else if let Some(chunkable) = ChunkableAssetVc::resolve_from(module).await? {
+            } else if let Some(chunkable) =
+                Vc::try_resolve_sidecast::<Box<dyn ChunkableAsset>>(module).await?
+            {
                 // TODO this is missing runtime code, so it's probably broken and we should also
                 // add an ecmascript chunk with the runtime code
                 Ok((chunkable, chunking_context, None))
@@ -182,12 +186,12 @@ pub async fn create_web_entry_source(
         .try_join()
         .await?;
 
-    let entry_asset = DevHtmlAssetVc::new(client_root.join("index.html"), entries).into();
+    let entry_asset = Vc::upcast(DevHtmlAsset::new(client_root.join("index.html"), entries));
 
     let graph = if eager_compile {
-        AssetGraphContentSourceVc::new_eager(client_root, entry_asset)
+        AssetGraphContentSource::new_eager(client_root, entry_asset)
     } else {
-        AssetGraphContentSourceVc::new_lazy(client_root, entry_asset)
+        AssetGraphContentSource::new_lazy(client_root, entry_asset)
     }
     .into();
     Ok(graph)

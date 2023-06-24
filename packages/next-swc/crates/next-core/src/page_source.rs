@@ -1,47 +1,42 @@
 use anyhow::{bail, Result};
 use indexmap::indexmap;
 use serde::{Deserialize, Serialize};
-use turbo_tasks::{
-    primitives::{JsonValueVc, StringVc, StringsVc},
-    trace::TraceRawVcs,
-    Value,
-};
+use serde_json::Value as JsonValue;
+use turbo_tasks::{trace::TraceRawVcs, Value, Vc};
 use turbopack_binding::{
     turbo::{
-        tasks_env::{CustomProcessEnvVc, EnvMapVc, ProcessEnvVc},
-        tasks_fs::{FileContent, FileSystemPathVc},
+        tasks_env::{CustomProcessEnv, EnvMap, ProcessEnv},
+        tasks_fs::{FileContent, FileSystemPath},
     },
     turbopack::{
         core::{
-            asset::{AssetVc, AssetsVc},
-            chunk::{ChunkingContextVc, EvaluatableAssetVc, EvaluatableAssetsVc},
-            context::{AssetContext, AssetContextVc},
-            environment::{EnvironmentIntention, ServerAddrVc},
-            reference_type::{EntryReferenceSubType, InnerAssetsVc, ReferenceType},
-            source_asset::SourceAssetVc,
+            asset::{Asset, Assets},
+            chunk::{ChunkingContext, EvaluatableAsset, EvaluatableAssets},
+            context::AssetContext,
+            environment::{EnvironmentIntention, ServerAddr},
+            reference_type::{EntryReferenceSubType, InnerAssets, ReferenceType},
+            source_asset::SourceAsset,
         },
-        dev::DevChunkingContextVc,
+        dev::DevChunkingContext,
         dev_server::{
-            html::DevHtmlAssetVc,
+            html::DevHtmlAsset,
             source::{
-                asset_graph::AssetGraphContentSourceVc,
-                combined::{CombinedContentSource, CombinedContentSourceVc},
-                specificity::SpecificityVc,
-                ContentSourceData, ContentSourceVc,
+                asset_graph::AssetGraphContentSource, combined::CombinedContentSource,
+                specificity::Specificity, ContentSource, ContentSourceData,
             },
         },
-        env::ProcessEnvAssetVc,
+        env::ProcessEnvAsset,
         node::{
             debug::should_debug,
-            execution_context::ExecutionContextVc,
+            execution_context::ExecutionContext,
             render::{
                 node_api_source::create_node_api_source,
                 rendered_source::create_node_rendered_source,
             },
-            route_matcher::RouteMatcherVc,
-            NodeEntry, NodeEntryVc, NodeRenderingEntry, NodeRenderingEntryVc,
+            route_matcher::RouteMatcher,
+            NodeEntry, NodeRenderingEntry,
         },
-        turbopack::{transition::TransitionsByNameVc, ModuleAssetContextVc},
+        turbopack::{transition::TransitionsByName, ModuleAssetContext},
     },
 };
 
@@ -58,15 +53,14 @@ use crate::{
         },
         transition::NextClientTransition,
     },
-    next_client_chunks::client_chunks_transition::NextClientChunksTransitionVc,
-    next_config::NextConfigVc,
+    next_client_chunks::client_chunks_transition::NextClientChunksTransition,
+    next_config::NextConfig,
     next_edge::{
         context::{get_edge_compile_time_info, get_edge_resolve_options_context},
         route_transition::NextEdgeRouteTransition,
     },
     next_route_matcher::{
-        NextExactMatcherVc, NextFallbackMatcherVc, NextParamsMatcherVc,
-        NextPrefixSuffixParamsMatcherVc,
+        NextExactMatcher, NextFallbackMatcher, NextParamsMatcher, NextPrefixSuffixParamsMatcher,
     },
     next_server::context::{
         get_server_compile_time_info, get_server_module_options_context,
@@ -74,8 +68,7 @@ use crate::{
     },
     page_loader::create_page_loader,
     pages_structure::{
-        OptionPagesStructureVc, PagesDirectoryStructure, PagesDirectoryStructureVc, PagesStructure,
-        PagesStructureItem, PagesStructureVc,
+        OptionPagesStructure, PagesDirectoryStructure, PagesStructure, PagesStructureItem,
     },
     util::{parse_config_from_source, pathname_for_path, render_data, NextRuntime, PathType},
 };
@@ -84,16 +77,16 @@ use crate::{
 /// Next.js pages folder.
 #[turbo_tasks::function]
 pub async fn create_page_source(
-    pages_structure: OptionPagesStructureVc,
-    project_root: FileSystemPathVc,
-    execution_context: ExecutionContextVc,
-    node_root: FileSystemPathVc,
-    client_root: FileSystemPathVc,
-    env: ProcessEnvVc,
-    browserslist_query: &str,
-    next_config: NextConfigVc,
-    server_addr: ServerAddrVc,
-) -> Result<ContentSourceVc> {
+    pages_structure: Vc<OptionPagesStructure>,
+    project_root: Vc<FileSystemPath>,
+    execution_context: Vc<ExecutionContext>,
+    node_root: Vc<FileSystemPath>,
+    client_root: Vc<FileSystemPath>,
+    env: Vc<Box<dyn ProcessEnv>>,
+    browserslist_query: String,
+    next_config: Vc<NextConfig>,
+    server_addr: Vc<ServerAddr>,
+) -> Result<Vc<Box<dyn ContentSource>>> {
     let (pages_dir, pages_structure) = if let Some(pages_structure) = *pages_structure.await? {
         (
             pages_structure.project_path().resolve().await?,
@@ -158,7 +151,7 @@ pub async fn create_page_source(
         Value::new(EnvironmentIntention::Api),
     );
 
-    let edge_chunking_context = DevChunkingContextVc::builder(
+    let edge_chunking_context = DevChunkingContext::builder(
         project_root,
         node_root.join("edge"),
         node_root.join("edge/chunks"),
@@ -211,13 +204,13 @@ pub async fn create_page_source(
         next_config,
     );
 
-    let transitions = TransitionsByNameVc::cell(
+    let transitions = Vc::cell(
         [
             ("next-edge".to_string(), next_edge_transition),
             ("next-client".to_string(), next_client_transition),
             (
                 "next-client-chunks".to_string(),
-                NextClientChunksTransitionVc::new(
+                Vc::upcast(NextClientChunksTransition::new(
                     project_root,
                     execution_context,
                     client_ty,
@@ -225,44 +218,38 @@ pub async fn create_page_source(
                     client_root,
                     client_compile_time_info,
                     next_config,
-                )
-                .into(),
+                )),
             ),
         ]
         .into_iter()
         .collect(),
     );
 
-    let client_context: AssetContextVc = ModuleAssetContextVc::new(
+    let client_context: Vc<Box<dyn AssetContext>> = Vc::upcast(ModuleAssetContext::new(
         transitions,
         client_compile_time_info,
         client_module_options_context,
         client_resolve_options_context,
-    )
-    .into();
-    let server_context: AssetContextVc = ModuleAssetContextVc::new(
+    ));
+    let server_context: Vc<Box<dyn AssetContext>> = Vc::upcast(ModuleAssetContext::new(
         transitions,
         server_compile_time_info,
         server_module_options_context,
         server_resolve_options_context,
-    )
-    .into();
-    let server_data_context: AssetContextVc = ModuleAssetContextVc::new(
+    ));
+    let server_data_context: Vc<Box<dyn AssetContext>> = Vc::upcast(ModuleAssetContext::new(
         transitions,
         server_compile_time_info,
         server_data_module_options_context,
         server_resolve_options_context,
-    )
-    .into();
+    ));
 
-    let injected_env = env_for_js(EnvMapVc::empty().into(), false, next_config);
-    let env = CustomProcessEnvVc::new(env, next_config.env()).as_process_env();
+    let injected_env = env_for_js(EnvMap::empty().into(), false, next_config);
+    let env = Vc::upcast(CustomProcessEnv::new(env, next_config.env()));
 
     let server_runtime_entries =
-        AssetsVc::cell(vec![
-            ProcessEnvAssetVc::new(project_root, injected_env).into()
-        ]);
-    let fallback_runtime_entries = AssetsVc::cell(vec![]);
+        Vc::cell(vec![ProcessEnvAsset::new(project_root, injected_env).into()]);
+    let fallback_runtime_entries = Vc::cell(vec![]);
 
     let fallback_page = get_fallback_page(
         project_root,
@@ -291,8 +278,8 @@ pub async fn create_page_source(
             fallback_page,
             client_root,
             node_root.join("force_not_found"),
-            SpecificityVc::exact(),
-            NextExactMatcherVc::new(StringVc::cell("_next/404".to_string())).into(),
+            Specificity::exact(),
+            Vc::upcast(NextExactMatcher::new(Vc::cell("_next/404".to_string()))),
             render_data,
         )
         .issue_context(pages_dir, "Next.js pages directory not found"),
@@ -316,9 +303,11 @@ pub async fn create_page_source(
     }
 
     sources.push(
-        AssetGraphContentSourceVc::new_eager(client_root, fallback_page.as_asset())
-            .as_content_source()
-            .issue_context(pages_dir, "Next.js pages directory fallback"),
+        Vc::upcast(AssetGraphContentSource::new_eager(
+            client_root,
+            Vc::upcast(fallback_page),
+        ))
+        .issue_context(pages_dir, "Next.js pages directory fallback"),
     );
 
     sources.push(
@@ -333,8 +322,8 @@ pub async fn create_page_source(
             fallback_page,
             client_root,
             node_root.join("fallback_not_found"),
-            SpecificityVc::not_found(),
-            NextFallbackMatcherVc::new().into(),
+            Specificity::not_found(),
+            NextFallbackMatcher::new().into(),
             render_data,
         )
         .issue_context(pages_dir, "Next.js pages directory not found fallback"),
@@ -347,24 +336,24 @@ pub async fn create_page_source(
 /// Handles a single page file in the pages directory
 #[turbo_tasks::function]
 async fn create_page_source_for_file(
-    project_path: FileSystemPathVc,
-    env: ProcessEnvVc,
-    server_context: AssetContextVc,
-    server_data_context: AssetContextVc,
-    client_context: AssetContextVc,
-    pages_dir: FileSystemPathVc,
-    specificity: SpecificityVc,
-    page_asset: AssetVc,
-    runtime_entries: AssetsVc,
-    fallback_page: DevHtmlAssetVc,
-    client_root: FileSystemPathVc,
-    client_path: FileSystemPathVc,
+    project_path: Vc<FileSystemPath>,
+    env: Vc<Box<dyn ProcessEnv>>,
+    server_context: Vc<Box<dyn AssetContext>>,
+    server_data_context: Vc<Box<dyn AssetContext>>,
+    client_context: Vc<Box<dyn AssetContext>>,
+    pages_dir: Vc<FileSystemPath>,
+    specificity: Vc<Specificity>,
+    page_asset: Vc<Box<dyn Asset>>,
+    runtime_entries: Vc<Assets>,
+    fallback_page: Vc<DevHtmlAsset>,
+    client_root: Vc<FileSystemPath>,
+    client_path: Vc<FileSystemPath>,
     is_api_path: bool,
-    node_path: FileSystemPathVc,
-    node_root: FileSystemPathVc,
-    render_data: JsonValueVc,
-) -> Result<ContentSourceVc> {
-    let server_chunking_context = DevChunkingContextVc::builder(
+    node_path: Vc<FileSystemPath>,
+    node_root: Vc<FileSystemPath>,
+    render_data: Vc<JsonValue>,
+) -> Result<Vc<Box<dyn ContentSource>>> {
+    let server_chunking_context = DevChunkingContext::builder(
         project_path,
         node_path,
         node_path.join("chunks"),
@@ -379,7 +368,7 @@ async fn create_page_source_for_file(
 
     let data_node_path = node_path.join("data");
 
-    let server_data_chunking_context = DevChunkingContextVc::builder(
+    let server_data_chunking_context = DevChunkingContext::builder(
         project_path,
         data_node_path,
         data_node_path.join("chunks"),
@@ -400,7 +389,7 @@ async fn create_page_source_for_file(
     );
 
     let pathname = pathname_for_path(client_root, client_path, PathType::Page);
-    let route_matcher = NextParamsMatcherVc::new(pathname);
+    let route_matcher = NextParamsMatcher::new(pathname);
 
     Ok(if is_api_path {
         create_node_api_source(
@@ -428,7 +417,7 @@ async fn create_page_source_for_file(
     } else {
         let data_pathname = pathname_for_path(client_root, client_path, PathType::Data);
         let data_route_matcher =
-            NextPrefixSuffixParamsMatcherVc::new(data_pathname, "_next/data/development/", ".json");
+            NextPrefixSuffixParamsMatcher::new(data_pathname, "_next/data/development/", ".json");
 
         let ssr_entry = SsrEntry {
             runtime_entries,
@@ -456,7 +445,7 @@ async fn create_page_source_for_file(
         .cell()
         .into();
 
-        CombinedContentSourceVc::new(vec![
+        Vc::upcast(CombinedContentSource::new(vec![
             create_node_rendered_source(
                 project_path,
                 env,
@@ -488,20 +477,19 @@ async fn create_page_source_for_file(
                 page_asset,
                 pathname,
             ),
-        ])
-        .into()
+        ]))
     })
 }
 
 async fn get_not_found_page(
-    pages_dir: FileSystemPathVc,
-    page_extensions: StringsVc,
-) -> Result<Option<AssetVc>> {
+    pages_dir: Vc<FileSystemPath>,
+    page_extensions: Vc<Vec<String>>,
+) -> Result<Option<Vc<Box<dyn Asset>>>> {
     for ext in page_extensions.await?.iter() {
         let not_found_path = pages_dir.join(&format!("404.{ext}"));
         let content = not_found_path.read();
         if let FileContent::Content(_) = &*content.await? {
-            return Ok(Some(SourceAssetVc::new(not_found_path).into()));
+            return Ok(Some(Vc::upcast(SourceAsset::new(not_found_path))));
         }
     }
     Ok(None)
@@ -510,21 +498,21 @@ async fn get_not_found_page(
 /// Handles a single page file in the pages directory
 #[turbo_tasks::function]
 async fn create_not_found_page_source(
-    project_path: FileSystemPathVc,
-    env: ProcessEnvVc,
-    server_context: AssetContextVc,
-    client_context: AssetContextVc,
-    pages_dir: FileSystemPathVc,
-    page_extensions: StringsVc,
-    runtime_entries: AssetsVc,
-    fallback_page: DevHtmlAssetVc,
-    client_root: FileSystemPathVc,
-    node_path: FileSystemPathVc,
-    specificity: SpecificityVc,
-    route_matcher: RouteMatcherVc,
-    render_data: JsonValueVc,
-) -> Result<ContentSourceVc> {
-    let server_chunking_context = DevChunkingContextVc::builder(
+    project_path: Vc<FileSystemPath>,
+    env: Vc<Box<dyn ProcessEnv>>,
+    server_context: Vc<Box<dyn AssetContext>>,
+    client_context: Vc<Box<dyn AssetContext>>,
+    pages_dir: Vc<FileSystemPath>,
+    page_extensions: Vc<Vec<String>>,
+    runtime_entries: Vc<Assets>,
+    fallback_page: Vc<DevHtmlAsset>,
+    client_root: Vc<FileSystemPath>,
+    node_path: Vc<FileSystemPath>,
+    specificity: Vc<Specificity>,
+    route_matcher: Vc<Box<dyn RouteMatcher>>,
+    render_data: Vc<JsonValue>,
+) -> Result<Vc<Box<dyn ContentSource>>> {
+    let server_chunking_context = DevChunkingContext::builder(
         project_path,
         node_path,
         node_path.join("chunks"),
@@ -547,14 +535,14 @@ async fn create_not_found_page_source(
     let (page_asset, pathname) =
         if let Some(not_found_page_asset) = get_not_found_page(pages_dir, page_extensions).await? {
             // If a 404 page is defined, the pathname should be 404.
-            (not_found_page_asset, StringVc::cell("/404".to_string()))
+            (not_found_page_asset, Vc::cell("/404".to_string()))
         } else {
             (
                 // The error page asset must be within the context path so it can depend on the
                 // Next.js module.
                 next_asset("entry/error.tsx"),
                 // If no 404 page is defined, the pathname should be _error.
-                StringVc::cell("/_error".to_string()),
+                Vc::cell("/_error".to_string()),
             )
         };
 
@@ -584,7 +572,7 @@ async fn create_not_found_page_source(
         pathname,
     );
 
-    Ok(CombinedContentSourceVc::new(vec![
+    Ok(Vc::upcast(CombinedContentSource::new(vec![
         create_node_rendered_source(
             project_path,
             env,
@@ -598,8 +586,7 @@ async fn create_not_found_page_source(
             should_debug("page_source"),
         ),
         page_loader,
-    ])
-    .into())
+    ])))
 }
 
 /// Handles a directory in the pages directory (or the pages directory itself).
@@ -607,19 +594,19 @@ async fn create_not_found_page_source(
 /// [create_page_source_for_file] method for files.
 #[turbo_tasks::function]
 async fn create_page_source_for_root_directory(
-    pages_structure: PagesStructureVc,
-    project_root: FileSystemPathVc,
-    env: ProcessEnvVc,
-    server_context: AssetContextVc,
-    server_data_context: AssetContextVc,
-    client_context: AssetContextVc,
-    pages_dir: FileSystemPathVc,
-    runtime_entries: AssetsVc,
-    fallback_page: DevHtmlAssetVc,
-    client_root: FileSystemPathVc,
-    node_root: FileSystemPathVc,
-    render_data: JsonValueVc,
-) -> Result<ContentSourceVc> {
+    pages_structure: Vc<PagesStructure>,
+    project_root: Vc<FileSystemPath>,
+    env: Vc<Box<dyn ProcessEnv>>,
+    server_context: Vc<Box<dyn AssetContext>>,
+    server_data_context: Vc<Box<dyn AssetContext>>,
+    client_context: Vc<Box<dyn AssetContext>>,
+    pages_dir: Vc<FileSystemPath>,
+    runtime_entries: Vc<Assets>,
+    fallback_page: Vc<DevHtmlAsset>,
+    client_root: Vc<FileSystemPath>,
+    node_root: Vc<FileSystemPath>,
+    render_data: Vc<JsonValue>,
+) -> Result<Vc<Box<dyn ContentSource>>> {
     let PagesStructure {
         app: _,
         document: _,
@@ -671,20 +658,20 @@ async fn create_page_source_for_root_directory(
 /// [create_page_source_for_file] method for files.
 #[turbo_tasks::function]
 async fn create_page_source_for_directory(
-    pages_structure: PagesDirectoryStructureVc,
-    project_root: FileSystemPathVc,
-    env: ProcessEnvVc,
-    server_context: AssetContextVc,
-    server_data_context: AssetContextVc,
-    client_context: AssetContextVc,
-    pages_dir: FileSystemPathVc,
-    runtime_entries: AssetsVc,
-    fallback_page: DevHtmlAssetVc,
-    client_root: FileSystemPathVc,
+    pages_structure: Vc<PagesDirectoryStructure>,
+    project_root: Vc<FileSystemPath>,
+    env: Vc<Box<dyn ProcessEnv>>,
+    server_context: Vc<Box<dyn AssetContext>>,
+    server_data_context: Vc<Box<dyn AssetContext>>,
+    client_context: Vc<Box<dyn AssetContext>>,
+    pages_dir: Vc<FileSystemPath>,
+    runtime_entries: Vc<Assets>,
+    fallback_page: Vc<DevHtmlAsset>,
+    client_root: Vc<FileSystemPath>,
     is_api_path: bool,
-    node_root: FileSystemPathVc,
-    render_data: JsonValueVc,
-) -> Result<ContentSourceVc> {
+    node_root: Vc<FileSystemPath>,
+    render_data: Vc<JsonValue>,
+) -> Result<Vc<Box<dyn ContentSource>>> {
     let PagesDirectoryStructure {
         ref items,
         ref children,
@@ -706,7 +693,7 @@ async fn create_page_source_for_directory(
             client_context,
             pages_dir,
             specificity,
-            SourceAssetVc::new(project_path).into(),
+            Vc::upcast(SourceAsset::new(project_path)),
             runtime_entries,
             fallback_page,
             client_root,
@@ -751,14 +738,14 @@ async fn create_page_source_for_directory(
 /// The node.js renderer for SSR of pages.
 #[turbo_tasks::value]
 pub struct SsrEntry {
-    runtime_entries: AssetsVc,
-    context: AssetContextVc,
-    entry_asset: AssetVc,
+    runtime_entries: Vc<Assets>,
+    context: Vc<Box<dyn AssetContext>>,
+    entry_asset: Vc<Box<dyn Asset>>,
     ty: SsrType,
-    chunking_context: ChunkingContextVc,
-    node_path: FileSystemPathVc,
-    node_root: FileSystemPathVc,
-    project_path: FileSystemPathVc,
+    chunking_context: Vc<Box<dyn ChunkingContext>>,
+    node_path: Vc<FileSystemPath>,
+    node_root: Vc<FileSystemPath>,
+    project_path: Vc<FileSystemPath>,
 }
 
 #[derive(
@@ -773,9 +760,9 @@ pub enum SsrType {
 }
 
 #[turbo_tasks::value_impl]
-impl SsrEntryVc {
+impl SsrEntry {
     #[turbo_tasks::function]
-    pub async fn entry(self) -> Result<NodeRenderingEntryVc> {
+    pub async fn entry(self: Vc<Self>) -> Result<Vc<NodeRenderingEntry>> {
         let this = self.await?;
         let entry_asset_page = this.context.process(
             this.entry_asset,
@@ -836,17 +823,17 @@ impl SsrEntryVc {
 
         let module = this.context.process(
             internal_asset,
-            Value::new(ReferenceType::Internal(InnerAssetsVc::cell(inner_assets))),
+            Value::new(ReferenceType::Internal(Vc::cell(inner_assets))),
         );
-        let Some(module) = EvaluatableAssetVc::resolve_from(module).await? else {
+        let Some(module) = Vc::try_resolve_sidecast::<Box<dyn EvaluatableAsset>>(module).await? else {
             bail!("internal module must be evaluatable");
         };
         Ok(NodeRenderingEntry {
-            runtime_entries: EvaluatableAssetsVc::cell(
+            runtime_entries: Vc::cell(
                 this.runtime_entries
                     .await?
                     .iter()
-                    .map(|entry| EvaluatableAssetVc::from_asset(*entry, this.context))
+                    .map(|entry| EvaluatableAsset::from_asset(*entry, this.context))
                     .collect(),
             ),
             module,
@@ -862,8 +849,8 @@ impl SsrEntryVc {
 #[turbo_tasks::value_impl]
 impl NodeEntry for SsrEntry {
     #[turbo_tasks::function]
-    fn entry(self_vc: SsrEntryVc, _data: Value<ContentSourceData>) -> NodeRenderingEntryVc {
+    fn entry(self: Vc<Self>, _data: Value<ContentSourceData>) -> Vc<NodeRenderingEntry> {
         // Call without being keyed by data
-        self_vc.entry()
+        self.entry()
     }
 }

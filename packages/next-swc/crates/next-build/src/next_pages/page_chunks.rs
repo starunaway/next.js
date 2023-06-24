@@ -5,51 +5,47 @@ use next_core::{
     next_client::{
         get_client_compile_time_info, get_client_module_options_context,
         get_client_resolve_options_context, get_client_runtime_entries, ClientContextType,
-        RuntimeEntriesVc, RuntimeEntry,
+        RuntimeEntries, RuntimeEntry,
     },
-    next_client_chunks::NextClientChunksTransitionVc,
-    next_config::NextConfigVc,
+    next_client_chunks::NextClientChunksTransition,
+    next_config::NextConfig,
     next_server::{
         get_server_compile_time_info, get_server_module_options_context,
         get_server_resolve_options_context, ServerContextType,
     },
     pages_structure::{
-        OptionPagesStructureVc, PagesDirectoryStructure, PagesDirectoryStructureVc, PagesStructure,
-        PagesStructureItem, PagesStructureVc,
+        OptionPagesStructure, PagesDirectoryStructure, PagesStructure, PagesStructureItem,
     },
     pathname_for_path,
-    turbopack::core::asset::AssetsVc,
+    turbopack::core::asset::Assets,
     PathType,
 };
+use turbo_tasks::Vc;
 use turbopack_binding::{
-    turbo::{
-        tasks::{primitives::StringVc, Value},
-        tasks_env::ProcessEnvVc,
-        tasks_fs::FileSystemPathVc,
-    },
+    turbo::{tasks::Value, tasks_env::ProcessEnv, tasks_fs::FileSystemPath},
     turbopack::{
         core::{
-            asset::AssetVc,
-            context::AssetContextVc,
-            environment::ServerAddrVc,
+            asset::Asset,
+            context::AssetContext,
+            environment::ServerAddr,
             reference_type::{EntryReferenceSubType, ReferenceType},
-            source_asset::SourceAssetVc,
+            source_asset::SourceAsset,
         },
-        env::ProcessEnvAssetVc,
-        node::execution_context::ExecutionContextVc,
-        turbopack::{transition::TransitionsByNameVc, ModuleAssetContextVc},
+        env::ProcessEnvAsset,
+        node::execution_context::ExecutionContext,
+        turbopack::{transition::TransitionsByName, ModuleAssetContext},
     },
 };
 
-use super::{client_context::PagesBuildClientContextVc, node_context::PagesBuildNodeContextVc};
+use super::{client_context::PagesBuildClientContext, node_context::PagesBuildNodeContext};
 
 #[turbo_tasks::value(transparent)]
-pub struct PageChunks(Vec<PageChunkVc>);
+pub struct PageChunks(Vec<Vc<PageChunk>>);
 
 #[turbo_tasks::value_impl]
-impl PageChunksVc {
+impl PageChunks {
     #[turbo_tasks::function]
-    pub fn empty() -> Self {
+    pub fn empty() -> Vc<Self> {
         PageChunks(vec![]).cell()
     }
 }
@@ -57,18 +53,18 @@ impl PageChunksVc {
 /// Returns a list of page chunks.
 #[turbo_tasks::function]
 pub async fn get_page_chunks(
-    pages_structure: OptionPagesStructureVc,
-    project_root: FileSystemPathVc,
-    execution_context: ExecutionContextVc,
-    node_root: FileSystemPathVc,
-    client_root: FileSystemPathVc,
-    env: ProcessEnvVc,
-    browserslist_query: &str,
-    next_config: NextConfigVc,
-    node_addr: ServerAddrVc,
-) -> Result<PageChunksVc> {
+    pages_structure: Vc<OptionPagesStructure>,
+    project_root: Vc<FileSystemPath>,
+    execution_context: Vc<ExecutionContext>,
+    node_root: Vc<FileSystemPath>,
+    client_root: Vc<FileSystemPath>,
+    env: Vc<Box<dyn ProcessEnv>>,
+    browserslist_query: String,
+    next_config: Vc<NextConfig>,
+    node_addr: Vc<ServerAddr>,
+) -> Result<Vc<PageChunks>> {
     let Some(pages_structure) = *pages_structure.await? else {
-        return Ok(PageChunksVc::empty());
+        return Ok(PageChunks::empty());
     };
     let pages_dir = pages_structure.project_path().resolve().await?;
 
@@ -79,12 +75,12 @@ pub async fn get_page_chunks(
 
     let client_compile_time_info = get_client_compile_time_info(mode, browserslist_query);
 
-    let transitions = TransitionsByNameVc::cell(
+    let transitions = Vc::cell(
         [(
             // This is necessary for the next dynamic transform to work.
             // TODO(alexkirsz) Should accept client chunking context? But how do we get this?
             "next-client-chunks".to_string(),
-            NextClientChunksTransitionVc::new(
+            Vc::upcast(NextClientChunksTransition::new(
                 project_root,
                 execution_context,
                 client_ty,
@@ -92,8 +88,7 @@ pub async fn get_page_chunks(
                 client_root,
                 client_compile_time_info,
                 next_config,
-            )
-            .into(),
+            )),
         )]
         .into_iter()
         .collect(),
@@ -114,13 +109,12 @@ pub async fn get_page_chunks(
         next_config,
         execution_context,
     );
-    let client_asset_context: AssetContextVc = ModuleAssetContextVc::new(
+    let client_asset_context: Vc<Box<dyn AssetContext>> = Vc::upcast(ModuleAssetContext::new(
         transitions,
         client_compile_time_info,
         client_module_options_context,
         client_resolve_options_context,
-    )
-    .into();
+    ));
 
     let node_compile_time_info = get_server_compile_time_info(node_ty, mode, env, node_addr);
     let node_resolve_options_context = get_server_resolve_options_context(
@@ -138,13 +132,12 @@ pub async fn get_page_chunks(
         next_config,
     );
 
-    let node_asset_context = ModuleAssetContextVc::new(
+    let node_asset_context = Vc::upcast(ModuleAssetContext::new(
         transitions,
         node_compile_time_info,
         node_module_options_context,
         node_resolve_options_context,
-    )
-    .into();
+    ));
 
     let node_runtime_entries = get_node_runtime_entries(project_root, env, next_config);
 
@@ -158,13 +151,13 @@ pub async fn get_page_chunks(
     );
     let client_runtime_entries = client_runtime_entries.resolve_entries(client_asset_context);
 
-    let node_build_context = PagesBuildNodeContextVc::new(
+    let node_build_context = PagesBuildNodeContext::new(
         project_root,
         node_root,
         node_asset_context,
         node_runtime_entries,
     );
-    let client_build_context = PagesBuildClientContextVc::new(
+    let client_build_context = PagesBuildClientContext::new(
         project_root,
         client_root,
         client_asset_context,
@@ -180,10 +173,10 @@ pub async fn get_page_chunks(
 
 #[turbo_tasks::function]
 async fn get_page_chunks_for_root_directory(
-    node_build_context: PagesBuildNodeContextVc,
-    client_build_context: PagesBuildClientContextVc,
-    pages_structure: PagesStructureVc,
-) -> Result<PageChunksVc> {
+    node_build_context: Vc<PagesBuildNodeContext>,
+    client_build_context: Vc<PagesBuildClientContext>,
+    pages_structure: Vc<PagesStructure>,
+) -> Result<Vc<PageChunks>> {
     let PagesStructure {
         app,
         document,
@@ -201,7 +194,7 @@ async fn get_page_chunks_for_root_directory(
     chunks.push(get_page_chunk_for_file(
         node_build_context,
         client_build_context,
-        SourceAssetVc::new(app.project_path).into(),
+        Vc::upcast(SourceAsset::new(app.project_path)),
         next_router_root,
         app.next_router_path,
     ));
@@ -211,7 +204,7 @@ async fn get_page_chunks_for_root_directory(
     chunks.push(get_page_chunk_for_file(
         node_build_context,
         client_build_context,
-        SourceAssetVc::new(document.project_path).into(),
+        Vc::upcast(SourceAsset::new(document.project_path)),
         next_router_root,
         document.next_router_path,
     ));
@@ -222,7 +215,7 @@ async fn get_page_chunks_for_root_directory(
     chunks.push(get_page_chunk_for_file(
         node_build_context,
         client_build_context,
-        SourceAssetVc::new(error.project_path).into(),
+        Vc::upcast(SourceAsset::new(error.project_path)),
         next_router_root,
         error.next_router_path,
     ));
@@ -253,16 +246,16 @@ async fn get_page_chunks_for_root_directory(
         .copied(),
     );
 
-    Ok(PageChunksVc::cell(chunks))
+    Ok(Vc::cell(chunks))
 }
 
 #[turbo_tasks::function]
 async fn get_page_chunks_for_directory(
-    node_build_context: PagesBuildNodeContextVc,
-    client_build_context: PagesBuildClientContextVc,
-    pages_structure: PagesDirectoryStructureVc,
-    next_router_root: FileSystemPathVc,
-) -> Result<PageChunksVc> {
+    node_build_context: Vc<PagesBuildNodeContext>,
+    client_build_context: Vc<PagesBuildClientContext>,
+    pages_structure: Vc<PagesDirectoryStructure>,
+    next_router_root: Vc<FileSystemPath>,
+) -> Result<Vc<PageChunks>> {
     let PagesDirectoryStructure {
         ref items,
         ref children,
@@ -279,7 +272,7 @@ async fn get_page_chunks_for_directory(
         chunks.push(get_page_chunk_for_file(
             node_build_context,
             client_build_context,
-            SourceAssetVc::new(project_path).into(),
+            Vc::upcast(SourceAsset::new(project_path)),
             next_router_root,
             next_router_path,
         ));
@@ -300,28 +293,28 @@ async fn get_page_chunks_for_directory(
         )
     }
 
-    Ok(PageChunksVc::cell(chunks))
+    Ok(Vc::cell(chunks))
 }
 
 /// A page chunk corresponding to some route.
 #[turbo_tasks::value]
 pub struct PageChunk {
     /// The pathname of the page.
-    pub pathname: StringVc,
+    pub pathname: Vc<String>,
     /// The Node.js chunk.
-    pub node_chunk: AssetVc,
+    pub node_chunk: Vc<Box<dyn Asset>>,
     /// The client chunks.
-    pub client_chunks: AssetsVc,
+    pub client_chunks: Vc<Assets>,
 }
 
 #[turbo_tasks::function]
 async fn get_page_chunk_for_file(
-    node_build_context: PagesBuildNodeContextVc,
-    client_build_context: PagesBuildClientContextVc,
-    page_asset: AssetVc,
-    next_router_root: FileSystemPathVc,
-    next_router_path: FileSystemPathVc,
-) -> Result<PageChunkVc> {
+    node_build_context: Vc<PagesBuildNodeContext>,
+    client_build_context: Vc<PagesBuildClientContext>,
+    page_asset: Vc<Box<dyn Asset>>,
+    next_router_root: Vc<FileSystemPath>,
+    next_router_path: Vc<FileSystemPath>,
+) -> Result<Vc<PageChunk>> {
     let reference_type = Value::new(ReferenceType::Entry(EntryReferenceSubType::Page));
 
     let pathname = pathname_for_path(next_router_root, next_router_path, PathType::Page);
@@ -335,21 +328,21 @@ async fn get_page_chunk_for_file(
 }
 
 #[turbo_tasks::function]
-async fn pathname_from_path(next_router_path: FileSystemPathVc) -> Result<StringVc> {
+async fn pathname_from_path(next_router_path: Vc<FileSystemPath>) -> Result<Vc<String>> {
     let pathname = next_router_path.await?;
-    Ok(StringVc::cell(pathname.path.clone()))
+    Ok(Vc::cell(pathname.path.clone()))
 }
 
 #[turbo_tasks::function]
 fn get_node_runtime_entries(
-    project_root: FileSystemPathVc,
-    env: ProcessEnvVc,
-    next_config: NextConfigVc,
-) -> RuntimeEntriesVc {
+    project_root: Vc<FileSystemPath>,
+    env: Vc<Box<dyn ProcessEnv>>,
+    next_config: Vc<NextConfig>,
+) -> Vc<RuntimeEntries> {
     let node_runtime_entries = vec![RuntimeEntry::Source(
-        ProcessEnvAssetVc::new(project_root, env_for_js(env, false, next_config)).into(),
+        ProcessEnvAsset::new(project_root, env_for_js(env, false, next_config)).into(),
     )
     .cell()];
 
-    RuntimeEntriesVc::cell(node_runtime_entries)
+    Vc::cell(node_runtime_entries)
 }

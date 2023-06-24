@@ -1,16 +1,14 @@
 use anyhow::Result;
-use turbo_tasks::Value;
+use turbo_tasks::{Value, Vc};
 use turbopack_binding::{
-    turbo::tasks_fs::FileSystemPathVc,
+    turbo::tasks_fs::FileSystemPath,
     turbopack::{
-        core::{asset::AssetVc, chunk::ChunkingContextVc, compile_time_info::CompileTimeInfoVc},
-        node::execution_context::ExecutionContextVc,
+        core::{asset::Asset, chunk::ChunkingContext, compile_time_info::CompileTimeInfo},
+        node::execution_context::ExecutionContext,
         turbopack::{
-            ecmascript::chunk::EcmascriptChunkPlaceableVc,
-            module_options::ModuleOptionsContextVc,
-            resolve_options_context::ResolveOptionsContextVc,
-            transition::{Transition, TransitionVc},
-            ModuleAssetContextVc,
+            ecmascript::chunk::EcmascriptChunkPlaceable, module_options::ModuleOptionsContext,
+            resolve_options_context::ResolveOptionsContext, transition::Transition,
+            ModuleAssetContext,
         },
     },
 };
@@ -22,30 +20,30 @@ use crate::{
         get_client_chunking_context, get_client_module_options_context,
         get_client_resolve_options_context, ClientContextType,
     },
-    next_config::NextConfigVc,
+    next_config::NextConfig,
 };
 
 #[turbo_tasks::value(shared)]
 pub struct NextClientChunksTransition {
-    pub client_compile_time_info: CompileTimeInfoVc,
-    pub client_module_options_context: ModuleOptionsContextVc,
-    pub client_resolve_options_context: ResolveOptionsContextVc,
-    pub client_chunking_context: ChunkingContextVc,
-    pub server_root: FileSystemPathVc,
+    pub client_compile_time_info: Vc<CompileTimeInfo>,
+    pub client_module_options_context: Vc<ModuleOptionsContext>,
+    pub client_resolve_options_context: Vc<ResolveOptionsContext>,
+    pub client_chunking_context: Vc<Box<dyn ChunkingContext>>,
+    pub server_root: Vc<FileSystemPath>,
 }
 
 #[turbo_tasks::value_impl]
-impl NextClientChunksTransitionVc {
+impl NextClientChunksTransition {
     #[turbo_tasks::function]
     pub fn new(
-        project_path: FileSystemPathVc,
-        execution_context: ExecutionContextVc,
+        project_path: Vc<FileSystemPath>,
+        execution_context: Vc<ExecutionContext>,
         ty: Value<ClientContextType>,
         mode: NextMode,
-        server_root: FileSystemPathVc,
-        client_compile_time_info: CompileTimeInfoVc,
-        next_config: NextConfigVc,
-    ) -> NextClientChunksTransitionVc {
+        server_root: Vc<FileSystemPath>,
+        client_compile_time_info: Vc<CompileTimeInfo>,
+        next_config: Vc<NextConfig>,
+    ) -> Vc<NextClientChunksTransition> {
         let client_chunking_context = get_client_chunking_context(
             project_path,
             server_root,
@@ -83,35 +81,37 @@ impl Transition for NextClientChunksTransition {
     #[turbo_tasks::function]
     fn process_compile_time_info(
         &self,
-        _compile_time_info: CompileTimeInfoVc,
-    ) -> CompileTimeInfoVc {
+        _compile_time_info: Vc<CompileTimeInfo>,
+    ) -> Vc<CompileTimeInfo> {
         self.client_compile_time_info
     }
 
     #[turbo_tasks::function]
     fn process_module_options_context(
         &self,
-        _context: ModuleOptionsContextVc,
-    ) -> ModuleOptionsContextVc {
+        _context: Vc<ModuleOptionsContext>,
+    ) -> Vc<ModuleOptionsContext> {
         self.client_module_options_context
     }
 
     #[turbo_tasks::function]
     fn process_resolve_options_context(
         &self,
-        _context: ResolveOptionsContextVc,
-    ) -> ResolveOptionsContextVc {
+        _context: Vc<ResolveOptionsContext>,
+    ) -> Vc<ResolveOptionsContext> {
         self.client_resolve_options_context
     }
 
     #[turbo_tasks::function]
     async fn process_module(
         &self,
-        asset: AssetVc,
-        _context: ModuleAssetContextVc,
-    ) -> Result<AssetVc> {
+        asset: Vc<Box<dyn Asset>>,
+        _context: Vc<ModuleAssetContext>,
+    ) -> Result<Vc<Box<dyn Asset>>> {
         Ok(
-            if let Some(placeable) = EcmascriptChunkPlaceableVc::resolve_from(asset).await? {
+            if let Some(placeable) =
+                Vc::try_resolve_sidecast::<Box<dyn EcmascriptChunkPlaceable>>(asset).await?
+            {
                 WithChunksAsset {
                     asset: placeable,
                     chunking_context: self.client_chunking_context,

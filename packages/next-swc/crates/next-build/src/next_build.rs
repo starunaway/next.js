@@ -7,29 +7,32 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use dunce::canonicalize;
 use next_core::{
-    self, next_config::load_next_config, pages_structure::find_pages_structure,
-    turbopack::ecmascript::utils::StringifyJs, url_node::get_sorted_routes,
+    next_config::load_next_config,
+    pages_structure::find_pages_structure,
+    turbopack::ecmascript::utils::StringifyJs,
+    url_node::get_sorted_routes,
+    {self},
 };
 use serde::Serialize;
 use turbo_tasks::{
     graph::{GraphTraversal, ReverseTopological},
-    CollectiblesSource, CompletionVc, RawVc, TransientInstance, TransientValue, TryJoinIterExt,
-    ValueToString,
+    CollectiblesSource, Completion, RawVc, TransientInstance, TransientValue, TryJoinIterExt,
+    ValueToString, Vc,
 };
 use turbopack_binding::{
-    turbo::tasks_fs::{DiskFileSystemVc, FileContent, FileSystem, FileSystemPathVc, FileSystemVc},
+    turbo::tasks_fs::{DiskFileSystem, FileContent, FileSystem, FileSystemPath},
     turbopack::{
-        cli_utils::issue::{ConsoleUiVc, LogOptions},
+        cli_utils::issue::{ConsoleUi, LogOptions},
         core::{
-            asset::{Asset, AssetVc, AssetsVc},
-            environment::ServerAddrVc,
-            issue::{IssueReporter, IssueReporterVc, IssueSeverity, IssueVc},
+            asset::{Asset, Assets},
+            environment::ServerAddr,
+            issue::{Issue, IssueReporter, IssueSeverity},
             reference::AssetReference,
-            virtual_fs::VirtualFileSystemVc,
+            virtual_fs::VirtualFileSystem,
         },
-        dev::DevChunkingContextVc,
+        dev::DevChunkingContext,
         env::dotenv::load_env,
-        node::execution_context::ExecutionContextVc,
+        node::execution_context::ExecutionContext,
         turbopack::evaluate_context::node_build_environment,
     },
 };
@@ -45,7 +48,7 @@ use crate::{
 };
 
 #[turbo_tasks::function]
-pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Result<CompletionVc> {
+pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Result<Vc<Completion>> {
     let project_root = options
         .dir
         .as_ref()
@@ -77,14 +80,14 @@ pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Resu
         log_level: options.log_level.unwrap_or(IssueSeverity::Warning),
     };
 
-    let issue_reporter: IssueReporterVc =
-        ConsoleUiVc::new(TransientInstance::new(log_options)).into();
+    let issue_reporter: Vc<Box<dyn IssueReporter>> =
+        Vc::upcast(ConsoleUi::new(TransientInstance::new(log_options)));
     let node_fs = node_fs(&project_root, issue_reporter);
     let node_root = node_fs.root().join(".next");
     let client_fs = client_fs(&project_root, issue_reporter);
     let client_root = client_fs.root().join(".next");
     // TODO(alexkirsz) This should accept a URL for assetPrefix.
-    // let client_public_fs = VirtualFileSystemVc::new();
+    // let client_public_fs = VirtualFileSystem::new();
     // let client_public_root = client_public_fs.root();
     let workspace_fs = workspace_fs(&workspace_root, issue_reporter);
     let project_relative = project_root.strip_prefix(&workspace_root).unwrap();
@@ -94,10 +97,10 @@ pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Resu
         .replace(MAIN_SEPARATOR, "/");
     let project_root = workspace_fs.root().join(&project_relative);
 
-    let next_router_fs = VirtualFileSystemVc::new().as_file_system();
+    let next_router_fs = Vc::upcast(VirtualFileSystem::new());
     let next_router_root = next_router_fs.root();
 
-    let build_chunking_context = DevChunkingContextVc::builder(
+    let build_chunking_context = DevChunkingContext::builder(
         project_root,
         node_root,
         node_root.join("chunks"),
@@ -108,7 +111,7 @@ pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Resu
 
     let env = load_env(project_root);
     // TODO(alexkirsz) Should this accept `node_root` at all?
-    let execution_context = ExecutionContextVc::new(project_root, build_chunking_context, env);
+    let execution_context = ExecutionContext::new(project_root, build_chunking_context, env);
     let next_config = load_next_config(execution_context.with_layer("next_config"));
 
     let pages_structure = find_pages_structure(project_root, next_router_root, next_config);
@@ -122,7 +125,7 @@ pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Resu
         env,
         browserslist_query,
         next_config,
-        ServerAddrVc::empty(),
+        ServerAddr::empty(),
     );
 
     handle_issues(page_chunks, issue_reporter).await?;
@@ -462,43 +465,49 @@ pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Resu
             .await?;
     }
 
-    Ok(CompletionVc::immutable())
+    Ok(Completion::immutable())
 }
 
 #[turbo_tasks::function]
-fn emit(asset: AssetVc) -> CompletionVc {
+fn emit(asset: Vc<Box<dyn Asset>>) -> Vc<Completion> {
     asset.content().write(asset.ident().path())
 }
 
 #[turbo_tasks::function]
 async fn workspace_fs(
-    workspace_root: &str,
-    issue_reporter: IssueReporterVc,
-) -> Result<FileSystemVc> {
-    let disk_fs = DiskFileSystemVc::new("workspace".to_string(), workspace_root.to_string());
+    workspace_root: String,
+    issue_reporter: Vc<Box<dyn IssueReporter>>,
+) -> Result<Vc<Box<dyn FileSystem>>> {
+    let disk_fs = DiskFileSystem::new("workspace".to_string(), workspace_root.to_string());
     handle_issues(disk_fs, issue_reporter).await?;
     Ok(disk_fs.into())
 }
 
 #[turbo_tasks::function]
-async fn node_fs(node_root: &str, issue_reporter: IssueReporterVc) -> Result<FileSystemVc> {
-    let disk_fs = DiskFileSystemVc::new("node".to_string(), node_root.to_string());
+async fn node_fs(
+    node_root: String,
+    issue_reporter: Vc<Box<dyn IssueReporter>>,
+) -> Result<Vc<Box<dyn FileSystem>>> {
+    let disk_fs = DiskFileSystem::new("node".to_string(), node_root.to_string());
     handle_issues(disk_fs, issue_reporter).await?;
     Ok(disk_fs.into())
 }
 
 #[turbo_tasks::function]
-async fn client_fs(client_root: &str, issue_reporter: IssueReporterVc) -> Result<FileSystemVc> {
-    let disk_fs = DiskFileSystemVc::new("client".to_string(), client_root.to_string());
+async fn client_fs(
+    client_root: String,
+    issue_reporter: Vc<Box<dyn IssueReporter>>,
+) -> Result<Vc<Box<dyn FileSystem>>> {
+    let disk_fs = DiskFileSystem::new("client".to_string(), client_root.to_string());
     handle_issues(disk_fs, issue_reporter).await?;
     Ok(disk_fs.into())
 }
 
 async fn handle_issues<T: Into<RawVc> + CollectiblesSource + Copy>(
     source: T,
-    issue_reporter: IssueReporterVc,
+    issue_reporter: Vc<Box<dyn IssueReporter>>,
 ) -> Result<()> {
-    let issues = IssueVc::peek_issues_with_path(source)
+    let issues = Issue::peek_issues_with_path(source)
         .await?
         .strongly_consistent()
         .await?;
@@ -517,8 +526,8 @@ async fn handle_issues<T: Into<RawVc> + CollectiblesSource + Copy>(
 
 /// Walks the asset graph from a single asset and collect all referenced assets.
 #[turbo_tasks::function]
-async fn all_assets_from_entry(entry: AssetVc) -> Result<AssetsVc> {
-    Ok(AssetsVc::cell(
+async fn all_assets_from_entry(entry: Vc<Box<dyn Asset>>) -> Result<Vc<Assets>> {
+    Ok(Vc::cell(
         ReverseTopological::new()
             .skip_duplicates()
             .visit([entry], get_referenced_assets)
@@ -533,8 +542,8 @@ async fn all_assets_from_entry(entry: AssetVc) -> Result<AssetsVc> {
 /// Walks the asset graph from multiple assets and collect all referenced
 /// assets.
 #[turbo_tasks::function]
-async fn all_assets_from_entries(entries: AssetsVc) -> Result<AssetsVc> {
-    Ok(AssetsVc::cell(
+async fn all_assets_from_entries(entries: Vc<Assets>) -> Result<Vc<Assets>> {
+    Ok(Vc::cell(
         ReverseTopological::new()
             .skip_duplicates()
             .visit(entries.await?.iter().copied(), get_referenced_assets)
@@ -547,7 +556,9 @@ async fn all_assets_from_entries(entries: AssetsVc) -> Result<AssetsVc> {
 }
 
 /// Computes the list of all chunk children of a given chunk.
-async fn get_referenced_assets(asset: AssetVc) -> Result<impl Iterator<Item = AssetVc> + Send> {
+async fn get_referenced_assets(
+    asset: Vc<Box<dyn Asset>>,
+) -> Result<impl Iterator<Item = Vc<Box<dyn Asset>>> + Send> {
     Ok(asset
         .references()
         .await?
@@ -564,7 +575,7 @@ async fn get_referenced_assets(asset: AssetVc) -> Result<impl Iterator<Item = As
 
 async fn write_placeholder_manifest<T>(
     manifest: &T,
-    node_root: FileSystemPathVc,
+    node_root: Vc<FileSystemPath>,
     path: &str,
 ) -> Result<()>
 where

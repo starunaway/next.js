@@ -1,36 +1,37 @@
 use anyhow::{bail, Result};
-use next_core::{next_client::RuntimeEntriesVc, turbopack::core::chunk::EvaluatableAssetsVc};
+use next_core::{next_client::RuntimeEntries, turbopack::core::chunk::EvaluatableAssets};
+use turbo_tasks::Vc;
 use turbopack_binding::{
-    turbo::{tasks::Value, tasks_fs::FileSystemPathVc},
+    turbo::{tasks::Value, tasks_fs::FileSystemPath},
     turbopack::{
-        build::BuildChunkingContextVc,
+        build::BuildChunkingContext,
         core::{
-            asset::AssetVc,
-            context::{AssetContext, AssetContextVc},
+            asset::Asset,
+            context::AssetContext,
             reference_type::{EntryReferenceSubType, ReferenceType},
-            resolve::{parse::RequestVc, pattern::QueryMapVc},
+            resolve::{parse::Request, pattern::QueryMap},
         },
-        ecmascript::EcmascriptModuleAssetVc,
+        ecmascript::EcmascriptModuleAsset,
     },
 };
 
 #[turbo_tasks::value]
 pub(crate) struct PagesBuildNodeContext {
-    project_root: FileSystemPathVc,
-    node_root: FileSystemPathVc,
-    node_asset_context: AssetContextVc,
-    node_runtime_entries: EvaluatableAssetsVc,
+    project_root: Vc<FileSystemPath>,
+    node_root: Vc<FileSystemPath>,
+    node_asset_context: Vc<Box<dyn AssetContext>>,
+    node_runtime_entries: Vc<EvaluatableAssets>,
 }
 
 #[turbo_tasks::value_impl]
-impl PagesBuildNodeContextVc {
+impl PagesBuildNodeContext {
     #[turbo_tasks::function]
     pub fn new(
-        project_root: FileSystemPathVc,
-        node_root: FileSystemPathVc,
-        node_asset_context: AssetContextVc,
-        node_runtime_entries: RuntimeEntriesVc,
-    ) -> PagesBuildNodeContextVc {
+        project_root: Vc<FileSystemPath>,
+        node_root: Vc<FileSystemPath>,
+        node_asset_context: Vc<Box<dyn AssetContext>>,
+        node_runtime_entries: Vc<RuntimeEntries>,
+    ) -> Vc<PagesBuildNodeContext> {
         PagesBuildNodeContext {
             project_root,
             node_root,
@@ -42,17 +43,17 @@ impl PagesBuildNodeContextVc {
 
     #[turbo_tasks::function]
     pub async fn resolve_module(
-        self,
-        origin: FileSystemPathVc,
+        self: Vc<Self>,
+        origin: Vc<FileSystemPath>,
         package: String,
         path: String,
-    ) -> Result<AssetVc> {
+    ) -> Result<Vc<Box<dyn Asset>>> {
         let this = self.await?;
         let Some(asset) = this
             .node_asset_context
             .resolve_asset(
                 origin,
-                RequestVc::module(package.clone(), Value::new(path.clone().into()), QueryMapVc::none()),
+                Request::module(package.clone(), Value::new(path.clone().into()), QueryMap::none()),
                 this.node_asset_context.resolve_options(origin, Value::new(ReferenceType::Entry(EntryReferenceSubType::Page))),
                 Value::new(ReferenceType::Entry(EntryReferenceSubType::Page))
             )
@@ -67,10 +68,10 @@ impl PagesBuildNodeContextVc {
     }
 
     #[turbo_tasks::function]
-    async fn node_chunking_context(self) -> Result<BuildChunkingContextVc> {
+    async fn node_chunking_context(self: Vc<Self>) -> Result<Vc<BuildChunkingContext>> {
         let this = self.await?;
 
-        Ok(BuildChunkingContextVc::builder(
+        Ok(BuildChunkingContext::builder(
             this.project_root,
             this.node_root,
             this.node_root.join("server/pages"),
@@ -82,15 +83,15 @@ impl PagesBuildNodeContextVc {
 
     #[turbo_tasks::function]
     pub async fn node_chunk(
-        self,
-        asset: AssetVc,
+        self: Vc<Self>,
+        asset: Vc<Box<dyn Asset>>,
         reference_type: Value<ReferenceType>,
-    ) -> Result<AssetVc> {
+    ) -> Result<Vc<Box<dyn Asset>>> {
         let this = self.await?;
 
         let node_asset_page = this.node_asset_context.process(asset, reference_type);
 
-        let Some(node_module_asset) = EcmascriptModuleAssetVc::resolve_from(node_asset_page).await? else {
+        let Some(node_module_asset) = Vc::try_resolve_downcast_type::<EcmascriptModuleAsset>(node_asset_page).await? else {
             bail!("Expected an EcmaScript module asset");
         };
 
