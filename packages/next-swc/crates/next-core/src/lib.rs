@@ -1,6 +1,7 @@
+// TODO(alexkirsz) Remove once the diagnostic is fixed.
+#![allow(rustc::untranslatable_diagnostic_trivial)]
 #![feature(async_closure)]
 #![feature(min_specialization)]
-#![feature(box_syntax)]
 
 mod app_render;
 mod app_segment_config;
