@@ -37,7 +37,7 @@ use turbo_tasks::{
 use turbopack_binding::{
     turbo::{
         malloc::TurboMalloc,
-        tasks_env::{CustomProcessEnv, EnvMap, ProcessEnv},
+        tasks_env::{CustomProcessEnv, ProcessEnv},
         tasks_fs::{DiskFileSystem, FileSystem},
         tasks_memory::MemoryBackend,
     },
