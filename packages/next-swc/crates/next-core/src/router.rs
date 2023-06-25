@@ -2,7 +2,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use futures::StreamExt;
 use indexmap::indexmap;
 use serde::Deserialize;
-use serde_json::{json, Value as JsonValue};
+use serde_json::json;
 use turbo_tasks::{util::SharedError, Completion, Completions, Value, Vc};
 use turbo_tasks_fs::json::parse_json_with_source_context;
 use turbopack_binding::{
@@ -12,13 +12,13 @@ use turbopack_binding::{
     },
     turbopack::{
         core::{
-            asset::{Asset, AssetOption},
+            asset::{Asset, AssetContent, AssetOption},
             changed::any_content_changed,
             chunk::ChunkingContext,
             context::AssetContext,
             environment::{EnvironmentIntention::Middleware, ServerAddr, ServerInfo},
             ident::AssetIdent,
-            issue::Issue,
+            issue::IssueContextExt,
             reference_type::{EcmaScriptModulesReferenceSubType, InnerAssets, ReferenceType},
             resolve::{find_context_file, FindContextFileResult},
             source_asset::SourceAsset,
@@ -45,7 +45,7 @@ use crate::{
     },
     next_import_map::get_next_build_import_map,
     next_server::context::{get_server_module_options_context, ServerContextType},
-    util::{parse_config_from_source, NextSourceConfig},
+    util::parse_config_from_source,
 };
 
 #[turbo_tasks::function]
@@ -176,7 +176,7 @@ async fn config_assets(
     // requires a real file for some reason.
     let (manifest, config) = match &*middleware_config {
         Some(c) => {
-            let manifest = context.with_transition("next-edge").process(
+            let manifest = context.with_transition("next-edge".to_string()).process(
                 *c,
                 Value::new(ReferenceType::EcmaScriptModules(
                     EcmaScriptModulesReferenceSubType::Undefined,
@@ -187,28 +187,28 @@ async fn config_assets(
         }
         None => {
             let manifest = context.process(
-                VirtualAsset::new(
-                    project_path.join("middleware.js"),
-                    File::from("export default [];").into(),
-                )
-                .as_asset(),
+                Vc::upcast(VirtualAsset::new(
+                    project_path.join("middleware.js".to_string()),
+                    AssetContent::file(File::from("export default [];").into()),
+                )),
                 Value::new(ReferenceType::Internal(InnerAssets::empty())),
             );
-            let config = NextSourceConfig::default();
+            let config = Default::default();
             (manifest, config)
         }
     };
 
     let config_asset = context.process(
-        VirtualAsset::new(
-            project_path.join("middleware_config.js"),
-            File::from(format!(
-                "export default {};",
-                json!({ "matcher": &config.await?.matcher })
-            ))
-            .into(),
-        )
-        .as_asset(),
+        Vc::upcast(VirtualAsset::new(
+            project_path.join("middleware_config.js".to_string()),
+            AssetContent::file(
+                File::from(format!(
+                    "export default {};",
+                    json!({ "matcher": &config.await?.matcher })
+                ))
+                .into(),
+            ),
+        )),
         Value::new(ReferenceType::Internal(InnerAssets::empty())),
     );
 
@@ -224,7 +224,7 @@ fn route_executor(
     configs: Vc<InnerAssets>,
 ) -> Vc<Box<dyn Asset>> {
     context.process(
-        next_asset("entry/router.ts"),
+        next_asset("entry/router.ts".to_string()),
         Value::new(ReferenceType::Internal(configs)),
     )
 }
@@ -242,9 +242,9 @@ fn edge_transition_map(
 
     let edge_chunking_context = DevChunkingContext::builder(
         project_path,
-        output_path.join("edge"),
-        output_path.join("edge/chunks"),
-        output_path.join("edge/assets"),
+        output_path.join("edge".to_string()),
+        output_path.join("edge/chunks".to_string()),
+        output_path.join("edge/assets".to_string()),
         edge_compile_time_info.environment(),
     )
     .reference_chunk_source_maps(should_debug("router"))
@@ -265,18 +265,19 @@ fn edge_transition_map(
         next_config,
     );
 
-    let next_edge_transition = NextEdgeRouteTransition {
-        edge_compile_time_info,
-        edge_chunking_context,
-        edge_module_options_context: Some(server_module_options_context),
-        edge_resolve_options_context,
-        output_path: output_path.root(),
-        base_path: project_path,
-        bootstrap_asset: next_asset("entry/edge-bootstrap.ts"),
-        entry_name: "middleware".to_string(),
-    }
-    .cell()
-    .into();
+    let next_edge_transition = Vc::upcast(
+        NextEdgeRouteTransition {
+            edge_compile_time_info,
+            edge_chunking_context,
+            edge_module_options_context: Some(server_module_options_context),
+            edge_resolve_options_context,
+            output_path: output_path.root(),
+            base_path: project_path,
+            bootstrap_asset: next_asset("entry/edge-bootstrap.ts".to_string()),
+            entry_name: "middleware".to_string(),
+        }
+        .cell(),
+    );
 
     Vc::cell(
         [("next-edge".to_string(), next_edge_transition)]
@@ -298,16 +299,14 @@ pub async fn route(
         ref pathname,
         ..
     } = *request.await?;
-    Issue::attach_description(
-        format!("Next.js Routing for {} {}", method, pathname),
-        route_internal(
-            execution_context,
-            request,
-            next_config,
-            server_addr,
-            routes_changed,
-        ),
+    route_internal(
+        execution_context,
+        request,
+        next_config,
+        server_addr,
+        routes_changed,
     )
+    .attach_description(format!("Next.js Routing for {} {}", method, pathname))
     .await
 }
 
@@ -366,7 +365,7 @@ async fn route_internal(
         env,
         AssetIdent::from_path(project_path),
         context,
-        chunking_context.with_layer("router"),
+        chunking_context.with_layer("router".to_string()),
         None,
         vec![
             Vc::cell(request),

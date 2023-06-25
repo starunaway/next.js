@@ -1,7 +1,4 @@
-use std::{
-    borrow::Cow,
-    collections::{BTreeMap, HashMap},
-};
+use std::collections::{BTreeMap, HashMap};
 
 use anyhow::{bail, Result};
 use indexmap::{indexmap, map::Entry, IndexMap};
@@ -11,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use turbo_tasks::{debug::ValueDebugFormat, trace::TraceRawVcs, Completion, Completions, Vc};
 use turbopack_binding::{
     turbo::tasks_fs::{DirectoryContent, DirectoryEntry, FileSystemEntryType, FileSystemPath},
-    turbopack::core::issue::{Issue, IssueSeverity},
+    turbopack::core::issue::{Issue, IssueExt, IssueSeverity},
 };
 
 use crate::next_config::NextConfig;
@@ -198,7 +195,7 @@ impl DirectoryTree {
         for child in subdirectories.values() {
             children.push(child.routes_changed());
         }
-        Ok(Vc::cell(children).completed())
+        Ok(Vc::<Completions>::cell(children).completed())
     }
 }
 
@@ -225,8 +222,8 @@ impl OptionAppDir {
 /// Finds and returns the [DirectoryTree] of the app directory if existing.
 #[turbo_tasks::function]
 pub async fn find_app_dir(project_path: Vc<FileSystemPath>) -> Result<Vc<OptionAppDir>> {
-    let app = project_path.join("app");
-    let src_app = project_path.join("src/app");
+    let app = project_path.join("app".to_string());
+    let src_app = project_path.join("src/app".to_string());
     let app_dir = if *app.get_type().await? == FileSystemEntryType::Directory {
         app
     } else if *src_app.get_type().await? == FileSystemEntryType::Directory {
@@ -365,7 +362,7 @@ async fn get_directory_tree(
                             let basename = file_name
                                 .rsplit_once('.')
                                 .map_or(file_name, |(basename, _)| basename);
-                            let alt_path = file.parent().join(&format!("{}.alt.txt", basename));
+                            let alt_path = file.parent().join(format!("{}.alt.txt", basename));
                             let alt_path =
                                 matches!(&*alt_path.get_type().await?, FileSystemEntryType::File)
                                     .then_some(alt_path);
@@ -527,14 +524,12 @@ async fn add_app_route(
 ) -> Result<()> {
     match result.entry(key) {
         Entry::Occupied(mut e) => {
-            Vc::upcast(
-                DirectoryTreeIssue {
-                    app_dir,
-                    message: Vc::cell(format!("Conflicting route at {}", e.key())),
-                    severity: IssueSeverity::Error.cell(),
-                }
-                .cell(),
-            )
+            DirectoryTreeIssue {
+                app_dir,
+                message: Vc::cell(format!("Conflicting route at {}", e.key())),
+                severity: IssueSeverity::Error.cell(),
+            }
+            .cell()
             .emit();
             *e.get_mut() = Entrypoint::AppRoute { path };
         }
@@ -558,7 +553,7 @@ fn directory_tree_to_entrypoints(
     app_dir: Vc<FileSystemPath>,
     directory_tree: Vc<DirectoryTree>,
 ) -> Vc<Entrypoints> {
-    directory_tree_to_entrypoints_internal(app_dir, "", directory_tree, "/")
+    directory_tree_to_entrypoints_internal(app_dir, "".to_string(), directory_tree, "/".to_string())
 }
 
 #[turbo_tasks::function]
@@ -575,7 +570,7 @@ async fn directory_tree_to_entrypoints_internal(
     let subdirectories = &directory_tree.subdirectories;
     let components = directory_tree.components.await?;
 
-    let current_level_is_parallel_route = is_parallel_route(directory_name);
+    let current_level_is_parallel_route = is_parallel_route(&directory_name);
 
     if let Some(page) = components.page {
         add_app_page(
@@ -664,16 +659,15 @@ async fn directory_tree_to_entrypoints_internal(
         let optional_segment = is_optional_segment(subdir_name);
         let map = directory_tree_to_entrypoints_internal(
             app_dir,
-            subdir_name,
+            subdir_name.to_string(),
             subdirectory,
             if parallel_route_key.is_some() || optional_segment {
-                Cow::Borrowed(path_prefix)
+                path_prefix.clone()
             } else if path_prefix == "/" {
-                format!("/{subdir_name}").into()
+                format!("/{subdir_name}")
             } else {
-                format!("{path_prefix}/{subdir_name}").into()
-            }
-            .as_ref(),
+                format!("{path_prefix}/{subdir_name}")
+            },
         )
         .await?;
         for (full_path, &entrypoint) in map.iter() {

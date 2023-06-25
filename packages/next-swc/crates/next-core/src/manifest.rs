@@ -9,7 +9,7 @@ use turbo_tasks::{
 use turbopack_binding::{
     turbo::{tasks::TryJoinIterExt, tasks_fs::File},
     turbopack::{
-        core::{asset::AssetContent, introspect::Introspectable},
+        core::{asset::AssetContent, introspect::Introspectable, version::VersionedContentExt},
         dev_server::source::{
             ContentSource, ContentSourceContent, ContentSourceData, ContentSourceResult,
         },
@@ -126,7 +126,7 @@ impl DevManifestContentSource {
             routes,
         };
 
-        let manifest = next_js_file("entry/manifest/buildManifest.js")
+        let manifest = next_js_file("entry/manifest/buildManifest.js".to_string())
             .await?
             .as_content()
             .context("embedded buildManifest file missing")?
@@ -157,7 +157,7 @@ impl ContentSource for DevManifestContentSource {
         path: String,
         _data: turbo_tasks::Value<ContentSourceData>,
     ) -> Result<Vc<ContentSourceResult>> {
-        let manifest_file = match path {
+        let manifest_file = match path.as_str() {
             "_next/static/development/_devPagesManifest.json" => {
                 let pages = &*self.find_routes().await?;
 
@@ -183,7 +183,9 @@ impl ContentSource for DevManifestContentSource {
         };
 
         Ok(ContentSourceResult::exact(Vc::upcast(
-            ContentSourceContent::static_content(Vc::upcast(AssetContent::from(manifest_file))),
+            ContentSourceContent::static_content(
+                AssetContent::file(manifest_file.into()).versioned(),
+            ),
         )))
     }
 }

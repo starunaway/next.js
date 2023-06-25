@@ -57,20 +57,17 @@ impl NextRouterContentSource {
 
 #[turbo_tasks::function]
 fn need_data(source: Vc<Box<dyn ContentSource>>, path: String) -> Vc<ContentSourceResult> {
-    ContentSourceResult::need_data(
-        NeededData {
-            source,
-            path: path.to_string(),
-            vary: ContentSourceDataVary {
-                method: true,
-                raw_headers: true,
-                raw_query: true,
-                body: true,
-                ..Default::default()
-            },
-        }
-        .into(),
-    )
+    ContentSourceResult::need_data(Value::new(NeededData {
+        source,
+        path: path.to_string(),
+        vary: ContentSourceDataVary {
+            method: true,
+            raw_headers: true,
+            raw_query: true,
+            body: true,
+            ..Default::default()
+        },
+    }))
 }
 
 #[turbo_tasks::function]
@@ -111,7 +108,7 @@ impl ContentSource for NextRouterContentSource {
             body: Some(body),
             ..
         } = &*data else {
-            return Ok(need_data(self.into(), path))
+            return Ok(need_data(Vc::upcast(self), path))
         };
 
         // TODO: change router so we can stream the request body to it
@@ -158,11 +155,11 @@ impl ContentSource for NextRouterContentSource {
                 if !data.headers.is_empty() {
                     rewrite = rewrite.response_headers(HeaderList::new(data.headers.clone()));
                 }
-                ContentSourceResult::exact(
-                    ContentSourceContent::Rewrite(rewrite.build()).cell().into(),
-                )
+                ContentSourceResult::exact(Vc::upcast(
+                    ContentSourceContent::Rewrite(rewrite.build()).cell(),
+                ))
             }
-            RouterResult::Middleware(data) => ContentSourceResult::exact(
+            RouterResult::Middleware(data) => ContentSourceResult::exact(Vc::upcast(
                 ContentSourceContent::HttpProxy(
                     ProxyResult {
                         status: data.status_code,
@@ -171,9 +168,8 @@ impl ContentSource for NextRouterContentSource {
                     }
                     .cell(),
                 )
-                .cell()
-                .into(),
-            ),
+                .cell(),
+            )),
         })
     }
 }

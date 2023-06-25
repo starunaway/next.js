@@ -33,7 +33,7 @@ use turbopack_binding::{
         },
         env::ProcessEnvAsset,
         node::execution_context::ExecutionContext,
-        turbopack::{transition::TransitionsByName, ModuleAssetContext},
+        turbopack::{ ModuleAssetContext},
     },
 };
 
@@ -339,9 +339,10 @@ fn get_node_runtime_entries(
     env: Vc<Box<dyn ProcessEnv>>,
     next_config: Vc<NextConfig>,
 ) -> Vc<RuntimeEntries> {
-    let node_runtime_entries = vec![RuntimeEntry::Source(
-        ProcessEnvAsset::new(project_root, env_for_js(env, false, next_config)).into(),
-    )
+    let node_runtime_entries = vec![RuntimeEntry::Source(Vc::upcast(ProcessEnvAsset::new(
+        project_root,
+        env_for_js(env, false, next_config),
+    )))
     .cell()];
 
     Vc::cell(node_runtime_entries)

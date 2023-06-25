@@ -48,7 +48,7 @@ impl ContentSource for NextImageContentSource {
                 .collect::<BTreeSet<_>>();
 
             return Ok(ContentSourceResult::need_data(Value::new(NeededData {
-                source: self.into(),
+                source: Vc::upcast(self),
                 path: path.to_string(),
                 vary: ContentSourceDataVary {
                     url: true,
@@ -89,19 +89,18 @@ impl ContentSource for NextImageContentSource {
                 this.asset_source,
                 Vc::upcast(NextImageContentSourceProcessor::new(path.to_string(), w, q)),
             );
-            return Ok(ContentSourceResult::exact(
+            return Ok(ContentSourceResult::exact(Vc::upcast(
                 ContentSourceContent::Rewrite(
                     RewriteBuilder::new(encode_pathname_to_url(path))
                         .content_source(Vc::upcast(wrapped))
                         .build(),
                 )
-                .cell()
-                .into(),
-            ));
+                .cell(),
+            )));
         }
 
         // TODO: This should be downloaded by the server, and resized, etc.
-        Ok(ContentSourceResult::exact(
+        Ok(ContentSourceResult::exact(Vc::upcast(
             ContentSourceContent::HttpProxy(
                 ProxyResult {
                     status: 302,
@@ -110,9 +109,8 @@ impl ContentSource for NextImageContentSource {
                 }
                 .cell(),
             )
-            .cell()
-            .into(),
-        ))
+            .cell(),
+        )))
     }
 }
 
@@ -162,7 +160,7 @@ impl ContentSourceProcessor for NextImageContentSourceProcessor {
             return Ok(content);
         };
         let optimized_file_content = optimize(
-            AssetIdent::from_path(ServerFileSystem::new().root().join(&self.path)),
+            AssetIdent::from_path(ServerFileSystem::new().root().join(self.path.clone())),
             file_content,
             self.width,
             u32::MAX,

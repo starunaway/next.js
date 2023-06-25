@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use swc_core::ecma::ast::Program;
-use turbo_tasks::{primitives::JsonValue, trace::TraceRawVcs, TaskInput, Value, ValueToString, Vc};
+use turbo_tasks::{trace::TraceRawVcs, TaskInput, Value, ValueDefault, ValueToString, Vc};
 use turbopack_binding::{
     turbo::tasks_fs::{json::parse_json_rope_with_source_context, FileContent, FileSystemPath},
     turbopack::{
@@ -10,13 +10,12 @@ use turbopack_binding::{
             asset::Asset,
             environment::{ServerAddr, ServerInfo},
             ident::AssetIdent,
-            issue::{Issue, IssueSeverity, OptionIssueSource},
+            issue::{Issue, IssueExt, IssueSeverity, OptionIssueSource},
             reference_type::{EcmaScriptModulesReferenceSubType, ReferenceType},
             resolve::{
                 handle_resolve_error,
                 node::node_cjs_resolve_options,
                 parse::Request,
-                pattern::QueryMap,
                 PrimaryResolveResult, {self},
             },
         },
@@ -115,9 +114,9 @@ pub struct NextSourceConfig {
 }
 
 #[turbo_tasks::value_impl]
-impl NextSourceConfig {
+impl ValueDefault for NextSourceConfig {
     #[turbo_tasks::function]
-    pub fn default() -> Vc<Self> {
+    pub fn value_default() -> Vc<Self> {
         NextSourceConfig::default().cell()
     }
 }
@@ -213,7 +212,7 @@ pub async fn parse_config_from_source(
             }
         }
     }
-    Ok(NextSourceConfig::default())
+    Ok(Default::default())
 }
 
 fn parse_config_from_js_value(
@@ -382,5 +381,5 @@ pub async fn render_data(
         next_config_output: config.output.clone(),
         server_info: server_info.ok(),
     })?;
-    Ok(JsonValue(value).cell())
+    Ok(Vc::cell(value))
 }

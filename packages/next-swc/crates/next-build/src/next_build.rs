@@ -16,8 +16,7 @@ use next_core::{
 use serde::Serialize;
 use turbo_tasks::{
     graph::{GraphTraversal, ReverseTopological},
-    CollectiblesSource, Completion, RawVc, TransientInstance, TransientValue, TryJoinIterExt,
-    ValueToString, Vc,
+    Completion, TransientInstance, TransientValue, TryJoinIterExt, ValueToString, Vc,
 };
 use turbopack_binding::{
     turbo::tasks_fs::{DiskFileSystem, FileContent, FileSystem, FileSystemPath},
@@ -26,7 +25,7 @@ use turbopack_binding::{
         core::{
             asset::{Asset, Assets},
             environment::ServerAddr,
-            issue::{Issue, IssueReporter, IssueSeverity},
+            issue::{IssueContextExt, IssueReporter, IssueSeverity},
             reference::AssetReference,
             virtual_fs::VirtualFileSystem,
         },
@@ -70,7 +69,8 @@ pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Resu
     };
 
     let browserslist_query = "last 1 Chrome versions, last 1 Firefox versions, last 1 Safari \
-                              versions, last 1 Edge versions";
+                              versions, last 1 Edge versions"
+        .to_string();
 
     let log_options = LogOptions {
         project_dir: PathBuf::from(project_root.clone()),
@@ -82,29 +82,29 @@ pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Resu
 
     let issue_reporter: Vc<Box<dyn IssueReporter>> =
         Vc::upcast(ConsoleUi::new(TransientInstance::new(log_options)));
-    let node_fs = node_fs(&project_root, issue_reporter);
-    let node_root = node_fs.root().join(".next");
-    let client_fs = client_fs(&project_root, issue_reporter);
-    let client_root = client_fs.root().join(".next");
+    let node_fs = node_fs(project_root.clone(), issue_reporter);
+    let node_root = node_fs.root().join(".next".to_string());
+    let client_fs = client_fs(project_root.clone(), issue_reporter);
+    let client_root = client_fs.root().join(".next".to_string());
     // TODO(alexkirsz) This should accept a URL for assetPrefix.
     // let client_public_fs = VirtualFileSystem::new();
     // let client_public_root = client_public_fs.root();
-    let workspace_fs = workspace_fs(&workspace_root, issue_reporter);
+    let workspace_fs = workspace_fs(workspace_root.clone(), issue_reporter);
     let project_relative = project_root.strip_prefix(&workspace_root).unwrap();
     let project_relative = project_relative
         .strip_prefix(MAIN_SEPARATOR)
         .unwrap_or(project_relative)
         .replace(MAIN_SEPARATOR, "/");
-    let project_root = workspace_fs.root().join(&project_relative);
+    let project_root = workspace_fs.root().join(project_relative);
 
-    let next_router_fs = Vc::upcast(VirtualFileSystem::new());
+    let next_router_fs = Vc::upcast::<Box<dyn FileSystem>>(VirtualFileSystem::new());
     let next_router_root = next_router_fs.root();
 
     let build_chunking_context = DevChunkingContext::builder(
         project_root,
         node_root,
-        node_root.join("chunks"),
-        node_root.join("assets"),
+        node_root.join("chunks".to_string()),
+        node_root.join("assets".to_string()),
         node_build_environment(),
     )
     .build();
@@ -112,7 +112,7 @@ pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Resu
     let env = load_env(project_root);
     // TODO(alexkirsz) Should this accept `node_root` at all?
     let execution_context = ExecutionContext::new(project_root, build_chunking_context, env);
-    let next_config = load_next_config(execution_context.with_layer("next_config"));
+    let next_config = load_next_config(execution_context.with_layer("next_config".to_string()));
 
     let pages_structure = find_pages_structure(project_root, next_router_root, next_config);
 
@@ -123,7 +123,7 @@ pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Resu
         node_root,
         client_root,
         env,
-        browserslist_query,
+        browserslist_query.clone(),
         next_config,
         ServerAddr::empty(),
     );
@@ -143,8 +143,8 @@ pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Resu
         // Server manifest.
         let mut pages_manifest: PagesManifest = Default::default();
 
-        let build_manifest_path = client_root.join("build-manifest.json");
-        let pages_manifest_path = node_root.join("server/pages-manifest.json");
+        let build_manifest_path = client_root.join("build-manifest.json".to_string());
+        let pages_manifest_path = node_root.join("server/pages-manifest.json".to_string());
 
         let page_chunks_and_url = page_chunks
             .await?
@@ -167,7 +167,11 @@ pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Resu
                     .iter()
                     .map(|asset| async move {
                         Ok((
-                            asset.ident().path().await?.is_inside(&*node_root.await?),
+                            asset
+                                .ident()
+                                .path()
+                                .await?
+                                .is_inside_ref(&*node_root.await?),
                             asset,
                         ))
                     })
@@ -187,7 +191,11 @@ pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Resu
                     .iter()
                     .map(|asset| async move {
                         Ok((
-                            asset.ident().path().await?.is_inside(&*client_root.await?),
+                            asset
+                                .ident()
+                                .path()
+                                .await?
+                                .is_inside_ref(&*client_root.await?),
                             asset,
                         ))
                     })
@@ -384,7 +392,7 @@ pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Resu
 
             let ssg_manifest_path = format!("static/{build_id}/_ssgManifest.js");
 
-            let ssg_manifest_fs_path = node_root.join(&ssg_manifest_path);
+            let ssg_manifest_fs_path = node_root.join(ssg_manifest_path.clone());
             ssg_manifest_fs_path
                 .write(
                     FileContent::Content(
@@ -435,7 +443,7 @@ pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Resu
 
             let client_manifest_path = format!("static/{build_id}/_buildManifest.js");
 
-            let client_manifest_fs_path = node_root.join(&client_manifest_path);
+            let client_manifest_fs_path = node_root.join(client_manifest_path.clone());
             client_manifest_fs_path
                 .write(
                     FileContent::Content(
@@ -480,7 +488,7 @@ async fn workspace_fs(
 ) -> Result<Vc<Box<dyn FileSystem>>> {
     let disk_fs = DiskFileSystem::new("workspace".to_string(), workspace_root.to_string());
     handle_issues(disk_fs, issue_reporter).await?;
-    Ok(disk_fs.into())
+    Ok(Vc::upcast(disk_fs))
 }
 
 #[turbo_tasks::function]
@@ -490,7 +498,7 @@ async fn node_fs(
 ) -> Result<Vc<Box<dyn FileSystem>>> {
     let disk_fs = DiskFileSystem::new("node".to_string(), node_root.to_string());
     handle_issues(disk_fs, issue_reporter).await?;
-    Ok(disk_fs.into())
+    Ok(Vc::upcast(disk_fs))
 }
 
 #[turbo_tasks::function]
@@ -500,21 +508,19 @@ async fn client_fs(
 ) -> Result<Vc<Box<dyn FileSystem>>> {
     let disk_fs = DiskFileSystem::new("client".to_string(), client_root.to_string());
     handle_issues(disk_fs, issue_reporter).await?;
-    Ok(disk_fs.into())
+    Ok(Vc::upcast(disk_fs))
 }
 
-async fn handle_issues<T: Into<RawVc> + CollectiblesSource + Copy>(
-    source: T,
-    issue_reporter: Vc<Box<dyn IssueReporter>>,
-) -> Result<()> {
-    let issues = Issue::peek_issues_with_path(source)
+async fn handle_issues<T>(source: Vc<T>, issue_reporter: Vc<Box<dyn IssueReporter>>) -> Result<()> {
+    let issues = source
+        .peek_issues_with_path()
         .await?
         .strongly_consistent()
         .await?;
 
     let has_fatal = issue_reporter.report_issues(
         TransientInstance::new(issues.clone()),
-        TransientValue::new(source.into()),
+        TransientValue::new(source.node),
     );
 
     if *has_fatal.await? {
@@ -582,7 +588,7 @@ where
     T: Serialize,
 {
     let json = serde_json::to_string_pretty(manifest)?;
-    let node_path = node_root.join(path);
+    let node_path = node_root.join(path.to_string());
     node_path
         .write(FileContent::Content(json.into()).cell())
         .await?;

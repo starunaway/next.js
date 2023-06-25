@@ -15,7 +15,10 @@ use turbopack_binding::{
             },
             free_var_references,
             reference_type::{EntryReferenceSubType, ReferenceType},
-            resolve::{origin::PlainResolveOrigin, parse::Request},
+            resolve::{
+                origin::{PlainResolveOrigin, ResolveOrigin, ResolveOriginExt},
+                parse::Request,
+            },
             source_asset::SourceAsset,
         },
         dev::react_refresh::assert_can_resolve_react_refresh,
@@ -98,12 +101,13 @@ async fn get_web_runtime_entries(
     // because the bootstrap contains JSX which requires Refresh's global
     // functions to be available.
     if let Some(request) = enable_react_refresh {
-        runtime_entries.push(RuntimeEntry::Request(request, project_root.join("_")).cell())
+        runtime_entries
+            .push(RuntimeEntry::Request(request, project_root.join("_".to_string())).cell())
     };
 
     runtime_entries.push(
         RuntimeEntry::Source(Vc::upcast(SourceAsset::new(next_js_file_path(
-            "dev/bootstrap.ts",
+            "dev/bootstrap.ts".to_string(),
         ))))
         .cell(),
     );
@@ -142,7 +146,10 @@ pub async fn create_web_entry_source(
 
     let runtime_entries = entries.resolve_entries(context);
 
-    let origin = Vc::upcast(PlainResolveOrigin::new(context, project_root.join("_")));
+    let origin = Vc::upcast::<Box<dyn ResolveOrigin>>(PlainResolveOrigin::new(
+        context,
+        project_root.join("_".to_string()),
+    ));
     let entries = entry_requests
         .into_iter()
         .map(|request| async move {
@@ -165,9 +172,9 @@ pub async fn create_web_entry_source(
                 Vc::try_resolve_downcast_type::<EcmascriptModuleAsset>(module).await?
             {
                 Ok((
-                    ecmascript.into(),
+                    Vc::upcast(ecmascript),
                     chunking_context,
-                    Some(runtime_entries.with_entry(ecmascript.into())),
+                    Some(runtime_entries.with_entry(Vc::upcast(ecmascript))),
                 ))
             } else if let Some(chunkable) =
                 Vc::try_resolve_sidecast::<Box<dyn ChunkableAsset>>(module).await?
@@ -186,13 +193,15 @@ pub async fn create_web_entry_source(
         .try_join()
         .await?;
 
-    let entry_asset = Vc::upcast(DevHtmlAsset::new(client_root.join("index.html"), entries));
+    let entry_asset = Vc::upcast(DevHtmlAsset::new(
+        client_root.join("index.html".to_string()),
+        entries,
+    ));
 
-    let graph = if eager_compile {
+    let graph = Vc::upcast(if eager_compile {
         AssetGraphContentSource::new_eager(client_root, entry_asset)
     } else {
         AssetGraphContentSource::new_lazy(client_root, entry_asset)
-    }
-    .into();
+    });
     Ok(graph)
 }

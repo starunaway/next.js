@@ -21,7 +21,6 @@ use turbopack_binding::{
             resolve::{parse::Request, pattern::Pattern},
         },
         dev::{react_refresh::assert_can_resolve_react_refresh, DevChunkingContext},
-        ecmascript::TransformPlugin,
         ecmascript_plugin::transform::directives::server::ServerDirectiveTransformer,
         env::ProcessEnvAsset,
         node::execution_context::ExecutionContext,
@@ -33,7 +32,6 @@ use turbopack_binding::{
                 TypescriptTransformOptions, WebpackLoadersOptions,
             },
             resolve_options_context::ResolveOptionsContext,
-            transition::TransitionsByName,
             ModuleAssetContext,
         },
     },
@@ -154,7 +152,9 @@ pub async fn get_client_resolve_options_context(
         resolved_map: Some(next_client_resolved_map),
         browser: true,
         module: true,
-        plugins: vec![UnsupportedModulesResolvePlugin::new(project_path).into()],
+        plugins: vec![Vc::upcast(UnsupportedModulesResolvePlugin::new(
+            project_path,
+        ))],
         ..Default::default()
     };
     Ok(ResolveOptionsContext {
@@ -214,13 +214,11 @@ pub async fn get_client_module_options_context(
         *get_emotion_transform_plugin(next_config).await?,
         *get_styled_components_transform_plugin(next_config).await?,
         *get_styled_jsx_transform_plugin().await?,
-        Some(TransformPlugin::cell(Box::new(
-            ServerDirectiveTransformer::new(
-                // ServerDirective is not implemented yet and always reports an issue.
-                // We don't have to pass a valid transition name yet, but the API is prepared.
-                &Vc::cell("TODO".to_string()),
-            ),
-        ))),
+        Some(Vc::cell(Box::new(ServerDirectiveTransformer::new(
+            // ServerDirective is not implemented yet and always reports an issue.
+            // We don't have to pass a valid transition name yet, but the API is prepared.
+            &Vc::cell("TODO".to_string()),
+        )) as _)),
     ]
     .into_iter()
     .flatten()
@@ -325,8 +323,8 @@ pub fn get_client_chunking_context(
         match ty.into_value() {
             ClientContextType::Pages { .. }
             | ClientContextType::App { .. }
-            | ClientContextType::Fallback => server_root.join("/_next/static/chunks"),
-            ClientContextType::Other => server_root.join("/_chunks"),
+            | ClientContextType::Fallback => server_root.join("/_next/static/chunks".to_string()),
+            ClientContextType::Other => server_root.join("/_chunks".to_string()),
         },
         get_client_assets_path(server_root, ty),
         environment,
@@ -343,8 +341,8 @@ pub fn get_client_assets_path(
     match ty.into_value() {
         ClientContextType::Pages { .. }
         | ClientContextType::App { .. }
-        | ClientContextType::Fallback => client_root.join("/_next/static/media"),
-        ClientContextType::Other => client_root.join("/_assets"),
+        | ClientContextType::Fallback => client_root.join("/_next/static/media".to_string()),
+        ClientContextType::Other => client_root.join("/_assets".to_string()),
     }
 }
 
@@ -390,7 +388,8 @@ pub async fn get_client_runtime_entries(
             // because the bootstrap contains JSX which requires Refresh's global
             // functions to be available.
             if let Some(request) = enable_react_refresh {
-                runtime_entries.push(RuntimeEntry::Request(request, project_root.join("_")).cell())
+                runtime_entries
+                    .push(RuntimeEntry::Request(request, project_root.join("_".to_string())).cell())
             };
         }
         NextMode::Build => {
@@ -399,7 +398,7 @@ pub async fn get_client_runtime_entries(
                     Request::parse(Value::new(Pattern::Constant(
                         "./build/client/bootstrap.ts".to_string(),
                     ))),
-                    next_js_fs().root().join("_"),
+                    next_js_fs().root().join("_".to_string()),
                 )
                 .cell(),
             );

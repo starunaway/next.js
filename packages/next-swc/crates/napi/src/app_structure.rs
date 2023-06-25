@@ -11,13 +11,12 @@ use next_core::app_structure::{
     LoaderTree, MetadataWithAltItem,
 };
 use serde::{Deserialize, Serialize};
-use turbo_tasks::Vc;
+use turbo_tasks::{unit, ReadRef, Vc};
 use turbopack_binding::{
     turbo::{
         tasks,
         tasks::{
-            debug::ValueDebugFormat, trace::TraceRawVcs, Nothing, TryJoinIterExt, TurboTasks,
-            ValueToString,
+            debug::ValueDebugFormat, trace::TraceRawVcs, TryJoinIterExt, TurboTasks, ValueToString,
         },
         tasks_fs::{DiskFileSystem, FileSystem, FileSystemPath},
         tasks_memory::MemoryBackend,
@@ -28,12 +27,12 @@ use turbopack_binding::{
 use crate::register;
 
 #[tasks::function]
-async fn project_fs(project_dir: &str, watching: bool) -> Result<Vc<Box<dyn FileSystem>>> {
+async fn project_fs(project_dir: String, watching: bool) -> Result<Vc<Box<dyn FileSystem>>> {
     let disk_fs = DiskFileSystem::new(PROJECT_FILESYSTEM_NAME.to_string(), project_dir.to_string());
     if watching {
         disk_fs.await?.start_watching_with_invalidation_reason()?;
     }
-    Ok(disk_fs.into())
+    Ok(Vc::upcast(disk_fs))
 }
 
 #[tasks::value]
@@ -261,24 +260,24 @@ async fn prepare_entrypoints_for_js(
         .await?
         .into_iter()
         .collect();
-    Ok(EntrypointsForJs::cell(entrypoints))
+    Ok(Vc::cell(entrypoints))
 }
 
 #[tasks::function]
 async fn get_value(
-    root_dir: &str,
-    project_dir: &str,
+    root_dir: String,
+    project_dir: String,
     page_extensions: Vec<String>,
     watching: bool,
 ) -> Result<Vc<OptionEntrypointsForJs>> {
     let page_extensions = Vc::cell(page_extensions);
-    let fs = project_fs(root_dir, watching);
-    let project_relative = project_dir.strip_prefix(root_dir).unwrap();
+    let fs = project_fs(root_dir.clone(), watching);
+    let project_relative = project_dir.strip_prefix(&root_dir).unwrap();
     let project_relative = project_relative
         .strip_prefix(MAIN_SEPARATOR)
         .unwrap_or(project_relative)
         .replace(MAIN_SEPARATOR, "/");
-    let project_path = fs.root().join(&project_relative);
+    let project_path = fs.root().join(project_relative);
 
     let app_dir = find_app_dir(project_path);
 
@@ -291,7 +290,7 @@ async fn get_value(
         None
     };
 
-    Ok(OptionEntrypointsForJs::cell(result))
+    Ok(Vc::cell(result))
 }
 
 #[napi]
@@ -319,8 +318,8 @@ pub fn stream_entrypoints(
         let page_extensions = page_extensions.clone();
         Box::pin(async move {
             if let Some(entrypoints) = &*get_value(
-                &root_dir,
-                &project_dir,
+                (*root_dir).clone(),
+                (*project_dir).clone(),
                 page_extensions.iter().map(|s| s.to_string()).collect(),
                 true,
             )
@@ -334,7 +333,7 @@ pub fn stream_entrypoints(
                 func.call(Ok(None), ThreadsafeFunctionCallMode::NonBlocking);
             }
 
-            Ok(Nothing::new().into())
+            Ok(unit().node)
         })
     });
     Ok(())
@@ -351,8 +350,8 @@ pub async fn get_entrypoints(
     let result = turbo_tasks
         .run_once(async move {
             let value = if let Some(entrypoints) = &*get_value(
-                &root_dir,
-                &project_dir,
+                root_dir,
+                project_dir,
                 page_extensions.iter().map(|s| s.to_string()).collect(),
                 false,
             )

@@ -74,8 +74,8 @@ impl PagesBuildNodeContext {
         Ok(BuildChunkingContext::builder(
             this.project_root,
             this.node_root,
-            this.node_root.join("server/pages"),
-            this.node_root.join("server/assets"),
+            this.node_root.join("server/pages".to_string()),
+            this.node_root.join("server/assets".to_string()),
             this.node_asset_context.compile_time_info().environment(),
         )
         .build())

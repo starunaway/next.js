@@ -13,7 +13,7 @@ use turbopack_binding::{
     },
 };
 
-use crate::bootstrap::{route_bootstrap, BootstrapConfig};
+use crate::bootstrap::route_bootstrap;
 
 #[turbo_tasks::value(shared)]
 pub struct NextEdgeRouteTransition {
@@ -61,7 +61,7 @@ impl Transition for NextEdgeRouteTransition {
     ) -> Result<Vc<Box<dyn Asset>>> {
         let new_asset = route_bootstrap(
             asset,
-            context.into(),
+            Vc::upcast(context),
             self.base_path,
             self.bootstrap_asset,
             Vc::cell(indexmap! {
@@ -70,12 +70,12 @@ impl Transition for NextEdgeRouteTransition {
         );
 
         let asset = ChunkGroupFilesAsset {
-            asset: new_asset.into(),
+            asset: Vc::upcast(new_asset),
             client_root: self.output_path,
             chunking_context: self.edge_chunking_context,
             runtime_entries: None,
         };
 
-        Ok(asset.cell().into())
+        Ok(Vc::upcast(asset.cell()))
     }
 }

@@ -44,7 +44,7 @@ impl Asset for StructuredImageSourceAsset {
         self.image
             .ident()
             .with_modifier(modifier())
-            .rename_as("*.mjs")
+            .rename_as("*.mjs".to_string())
     }
 
     #[turbo_tasks::function]

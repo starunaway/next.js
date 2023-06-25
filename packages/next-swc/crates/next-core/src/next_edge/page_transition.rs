@@ -9,7 +9,7 @@ use turbopack_binding::{
             chunk::{ChunkableAsset, ChunkingContext},
             compile_time_info::CompileTimeInfo,
             context::AssetContext,
-            reference_type::{EcmaScriptModulesReferenceSubType, InnerAssets, ReferenceType},
+            reference_type::{EcmaScriptModulesReferenceSubType, ReferenceType},
             source_asset::SourceAsset,
         },
         ecmascript::chunk_group_files_asset::ChunkGroupFilesAsset,
@@ -73,8 +73,8 @@ impl Transition for NextEdgePageTransition {
             self.bootstrap_asset,
             Value::new(ReferenceType::Internal(Vc::cell(indexmap! {
                 "APP_ENTRY".to_string() => asset,
-                "APP_BOOTSTRAP".to_string() => context.with_transition("next-client").process(
-                    SourceAsset::new(next_js_file_path("entry/app/hydrate.tsx")).into(),
+                "APP_BOOTSTRAP".to_string() => context.with_transition("next-client".to_string()).process(
+                    Vc::upcast(SourceAsset::new(next_js_file_path("entry/app/hydrate.tsx".to_string()))),
                     Value::new(ReferenceType::EcmaScriptModules(
                         EcmaScriptModulesReferenceSubType::Undefined,
                     )),
@@ -93,6 +93,6 @@ impl Transition for NextEdgePageTransition {
             runtime_entries: None,
         };
 
-        Ok(asset.cell().into())
+        Ok(Vc::upcast(asset.cell()))
     }
 }

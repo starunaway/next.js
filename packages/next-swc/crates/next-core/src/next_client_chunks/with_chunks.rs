@@ -21,8 +21,8 @@ use turbopack_binding::{
         ecmascript::{
             chunk::{
                 EcmascriptChunk, EcmascriptChunkData, EcmascriptChunkItem,
-                EcmascriptChunkItemContent, EcmascriptChunkPlaceable, EcmascriptChunkingContext,
-                EcmascriptExports,
+                EcmascriptChunkItemContent, EcmascriptChunkItemExt, EcmascriptChunkPlaceable,
+                EcmascriptChunkingContext, EcmascriptExports,
             },
             utils::StringifyJs,
         },
@@ -57,11 +57,10 @@ impl Asset for WithChunksAsset {
         let this = self.await?;
         let entry_chunk = self.entry_chunk();
 
-        Ok(Vc::cell(vec![ChunkGroupReference::new(
+        Ok(Vc::cell(vec![Vc::upcast(ChunkGroupReference::new(
             this.chunking_context,
             entry_chunk,
-        )
-        .into()]))
+        ))]))
     }
 }
 
@@ -88,12 +87,13 @@ impl EcmascriptChunkPlaceable for WithChunksAsset {
         self: Vc<Self>,
         context: Vc<Box<dyn EcmascriptChunkingContext>>,
     ) -> Result<Vc<Box<dyn EcmascriptChunkItem>>> {
-        Ok(WithChunksChunkItem {
-            context,
-            inner: self,
-        }
-        .cell()
-        .into())
+        Ok(Vc::upcast(
+            WithChunksChunkItem {
+                context,
+                inner: self,
+            }
+            .cell(),
+        ))
     }
 
     #[turbo_tasks::function]

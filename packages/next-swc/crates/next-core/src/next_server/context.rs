@@ -101,8 +101,8 @@ pub async fn get_server_resolve_options_context(
                 custom_conditions: vec![mode.node_env().to_string(), "node".to_string()],
                 import_map: Some(next_server_import_map),
                 plugins: vec![
-                    external_cjs_modules_plugin.into(),
-                    unsupported_modules_resolve_plugin.into(),
+                    Vc::upcast(external_cjs_modules_plugin),
+                    Vc::upcast(unsupported_modules_resolve_plugin),
                 ],
                 ..Default::default()
             };
@@ -129,8 +129,8 @@ pub async fn get_server_resolve_options_context(
                 ],
                 import_map: Some(next_server_import_map),
                 plugins: vec![
-                    server_component_externals_plugin.into(),
-                    unsupported_modules_resolve_plugin.into(),
+                    Vc::upcast(server_component_externals_plugin),
+                    Vc::upcast(unsupported_modules_resolve_plugin),
                 ],
                 ..Default::default()
             };
@@ -158,8 +158,8 @@ pub async fn get_server_resolve_options_context(
                 ],
                 import_map: Some(next_server_import_map),
                 plugins: vec![
-                    server_component_externals_plugin.into(),
-                    unsupported_modules_resolve_plugin.into(),
+                    Vc::upcast(server_component_externals_plugin),
+                    Vc::upcast(unsupported_modules_resolve_plugin),
                 ],
                 ..Default::default()
             };
@@ -180,8 +180,8 @@ pub async fn get_server_resolve_options_context(
                 custom_conditions: vec![mode.node_env().to_string(), "node".to_string()],
                 import_map: Some(next_server_import_map),
                 plugins: vec![
-                    server_component_externals_plugin.into(),
-                    unsupported_modules_resolve_plugin.into(),
+                    Vc::upcast(server_component_externals_plugin),
+                    Vc::upcast(unsupported_modules_resolve_plugin),
                 ],
                 ..Default::default()
             };
@@ -201,7 +201,7 @@ pub async fn get_server_resolve_options_context(
                 enable_node_externals: true,
                 module: true,
                 custom_conditions: vec![mode.node_env().to_string()],
-                plugins: vec![unsupported_modules_resolve_plugin.into()],
+                plugins: vec![Vc::upcast(unsupported_modules_resolve_plugin)],
                 ..Default::default()
             };
             ResolveOptionsContext {
@@ -297,16 +297,17 @@ pub async fn get_server_module_options_context(
     let styled_components_transform_plugin =
         *get_styled_components_transform_plugin(next_config).await?;
     let styled_jsx_transform_plugin = *get_styled_jsx_transform_plugin().await?;
-    let client_directive_transform_plugin = Some(TransformPlugin::cell(Box::new(
-        ClientDirectiveTransformer::new(&Vc::cell("server-to-client".to_string())),
-    )));
-    let server_directive_transform_plugin = Some(TransformPlugin::cell(Box::new(
-        ServerDirectiveTransformer::new(
+    let client_directive_transform_plugin = Some(Vc::cell(
+        Box::new(ClientDirectiveTransformer::new(&Vc::cell(
+            "server-to-client".to_string(),
+        ))) as _,
+    ));
+    let server_directive_transform_plugin =
+        Some(Vc::cell(Box::new(ServerDirectiveTransformer::new(
             // ServerDirective is not implemented yet and always reports an issue.
             // We don't have to pass a valid transition name yet, but the API is prepared.
             &Vc::cell("TODO".to_string()),
-        ),
-    )));
+        )) as _));
 
     // ModuleOptionsContext related options
     let tsconfig = get_typescript_transform_options(project_path);

@@ -12,7 +12,7 @@ use turbopack_binding::{
         },
     },
     turbopack::{
-        core::asset::AssetContent,
+        core::{asset::AssetContent, version::VersionedContentExt},
         dev_server::source::{
             ContentSource, ContentSourceContent, ContentSourceData, ContentSourceDataFilter,
             ContentSourceDataVary, ContentSourceResult, NeededData,
@@ -51,7 +51,7 @@ impl ContentSource for TurboTasksSource {
                 invalidator.invalidate();
             }
         });
-        let html = match path {
+        let html = match path.as_str() {
             "graph" => {
                 let mut stats = Stats::new();
                 let b = tt.backend();
@@ -93,7 +93,7 @@ impl ContentSource for TurboTasksSource {
                     viz::table::wrap_html(&table)
                 } else {
                     return Ok(ContentSourceResult::need_data(Value::new(NeededData {
-                        source: self.into(),
+                        source: Vc::upcast(self),
                         path: path.to_string(),
                         vary: ContentSourceDataVary {
                             query: Some(ContentSourceDataFilter::All),
@@ -112,9 +112,10 @@ impl ContentSource for TurboTasksSource {
             _ => return Ok(ContentSourceResult::not_found()),
         };
         Ok(ContentSourceResult::exact(Vc::upcast(
-            ContentSourceContent::static_content(Vc::upcast(AssetContent::from(
-                File::from(html).with_content_type(TEXT_HTML_UTF_8),
-            ))),
+            ContentSourceContent::static_content(
+                AssetContent::file(File::from(html).with_content_type(TEXT_HTML_UTF_8).into())
+                    .versioned(),
+            ),
         )))
     }
 }

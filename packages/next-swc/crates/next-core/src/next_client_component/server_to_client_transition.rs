@@ -5,7 +5,7 @@ use turbopack_binding::turbopack::{
     core::{
         asset::Asset,
         context::AssetContext,
-        reference_type::{EntryReferenceSubType, InnerAssets, ReferenceType},
+        reference_type::{EntryReferenceSubType, ReferenceType},
     },
     turbopack::{transition::Transition, ModuleAssetContext},
 };
@@ -26,24 +26,31 @@ impl Transition for NextServerToClientTransition {
         context: Vc<ModuleAssetContext>,
         _reference_type: Value<ReferenceType>,
     ) -> Result<Vc<Box<dyn Asset>>> {
-        let internal_asset = next_asset(if self.await?.ssr {
-            "entry/app/server-to-client-ssr.tsx"
-        } else {
-            "entry/app/server-to-client.tsx"
-        });
+        let internal_asset = next_asset(
+            if self.await?.ssr {
+                "entry/app/server-to-client-ssr.tsx"
+            } else {
+                "entry/app/server-to-client.tsx"
+            }
+            .to_string(),
+        );
         let context = self.process_context(context);
-        let client_chunks = context.with_transition("next-client-chunks").process(
-            asset,
-            Value::new(ReferenceType::Entry(
-                EntryReferenceSubType::AppClientComponent,
-            )),
-        );
-        let client_module = context.with_transition("next-ssr-client-module").process(
-            asset,
-            Value::new(ReferenceType::Entry(
-                EntryReferenceSubType::AppClientComponent,
-            )),
-        );
+        let client_chunks = context
+            .with_transition("next-client-chunks".to_string())
+            .process(
+                asset,
+                Value::new(ReferenceType::Entry(
+                    EntryReferenceSubType::AppClientComponent,
+                )),
+            );
+        let client_module = context
+            .with_transition("next-ssr-client-module".to_string())
+            .process(
+                asset,
+                Value::new(ReferenceType::Entry(
+                    EntryReferenceSubType::AppClientComponent,
+                )),
+            );
         Ok(context.process(
             internal_asset,
             Value::new(ReferenceType::Internal(Vc::cell(indexmap! {

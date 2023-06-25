@@ -112,12 +112,13 @@ impl Transition for NextClientChunksTransition {
             if let Some(placeable) =
                 Vc::try_resolve_sidecast::<Box<dyn EcmascriptChunkPlaceable>>(asset).await?
             {
-                WithChunksAsset {
-                    asset: placeable,
-                    chunking_context: self.client_chunking_context,
-                }
-                .cell()
-                .into()
+                Vc::upcast(
+                    WithChunksAsset {
+                        asset: placeable,
+                        chunking_context: self.client_chunking_context,
+                    }
+                    .cell(),
+                )
             } else {
                 asset
             },

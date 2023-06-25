@@ -18,9 +18,10 @@ use turbopack_binding::{
     },
     turbopack::{
         core::{
+            asset::AssetContent,
             context::AssetContext,
             ident::AssetIdent,
-            issue::IssueSeverity,
+            issue::{IssueExt, IssueSeverity},
             reference_type::{InnerAssets, ReferenceType},
             resolve::{
                 options::{ImportMapResult, ImportMapping, ImportMappingReplacement},
@@ -111,9 +112,9 @@ impl ImportMappingReplacement for NextFontGoogleReplacer {
         let fallback = get_font_fallback(self.project_path, options, request_hash);
         let properties = get_font_css_properties(options, fallback, request_hash).await?;
         let js_asset = VirtualAsset::new(
-                next_js_file_path("internal/font/google")
-                    .join(&format!("{}.js", get_request_id(options.font_family(), request_hash).await?)),
-                FileContent::Content(
+                next_js_file_path("internal/font/google".to_string())
+                    .join(format!("{}.js", get_request_id(options.font_family(), request_hash).await?)),
+                AssetContent::file(FileContent::Content(
                     formatdoc!(
                         r#"
                             import cssModule from "@vercel/turbopack-next/internal/font/google/cssmodule.module.css?{}";
@@ -149,10 +150,10 @@ impl ImportMappingReplacement for NextFontGoogleReplacer {
                     )
                     .into(),
                 )
-                .into(),
+                .into()),
             );
 
-        Ok(ImportMapResult::Result(ResolveResult::asset(js_asset.into()).into()).into())
+        Ok(ImportMapResult::Result(ResolveResult::asset(Vc::upcast(js_asset)).into()).into())
     }
 }
 
@@ -211,7 +212,7 @@ impl ImportMappingReplacement for NextFontGoogleCssModuleReplacer {
             options.font_family(),
             request_hash,
         );
-        let css_virtual_path = next_js_file_path("internal/font/google").join(&format!(
+        let css_virtual_path = next_js_file_path("internal/font/google".to_string()).join(format!(
             "/{}.module.css",
             get_request_id(options.font_family(), request_hash).await?
         ));
@@ -219,8 +220,10 @@ impl ImportMappingReplacement for NextFontGoogleCssModuleReplacer {
         // When running Next.js integration tests, use the mock data available in
         // process.env.NEXT_FONT_GOOGLE_MOCKED_RESPONSES instead of making real
         // requests to Google Fonts.
-        let env = Vc::upcast(CommandLineProcessEnv::new());
-        let mocked_responses_path = &*env.read("NEXT_FONT_GOOGLE_MOCKED_RESPONSES").await?;
+        let env = Vc::upcast::<Box<dyn ProcessEnv>>(CommandLineProcessEnv::new());
+        let mocked_responses_path = &*env
+            .read("NEXT_FONT_GOOGLE_MOCKED_RESPONSES".to_string())
+            .await?;
         let stylesheet_str = mocked_responses_path
             .as_ref()
             .map_or_else(
@@ -241,19 +244,21 @@ impl ImportMappingReplacement for NextFontGoogleCssModuleReplacer {
         let font_fallback = get_font_fallback(self.project_path, options, request_hash);
         let css_asset = VirtualAsset::new(
             css_virtual_path,
-            FileContent::Content(
-                build_stylesheet(
-                    Vc::cell(stylesheet),
-                    get_font_css_properties(options, font_fallback, request_hash),
-                    font_fallback,
+            AssetContent::file(
+                FileContent::Content(
+                    build_stylesheet(
+                        Vc::cell(stylesheet),
+                        get_font_css_properties(options, font_fallback, request_hash),
+                        font_fallback,
+                    )
+                    .await?
+                    .into(),
                 )
-                .await?
                 .into(),
-            )
-            .into(),
+            ),
         );
 
-        Ok(ImportMapResult::Result(ResolveResult::asset(css_asset.into()).into()).into())
+        Ok(ImportMapResult::Result(ResolveResult::asset(Vc::upcast(css_asset)).into()).into())
     }
 }
 
@@ -293,11 +298,13 @@ async fn get_stylesheet_url_from_options(
     let mut css_url: Option<String> = None;
     #[cfg(debug_assertions)]
     {
-        use turbo_tasks::Vc;
         use turbopack_binding::turbo::tasks_env::{CommandLineProcessEnv, ProcessEnv};
 
         let env = CommandLineProcessEnv::new();
-        if let Some(url) = &*env.read("TURBOPACK_TEST_ONLY_MOCK_SERVER").await? {
+        if let Some(url) = &*env
+            .read("TURBOPACK_TEST_ONLY_MOCK_SERVER".to_string())
+            .await?
+        {
             css_url = Some(format!("{}/css2", url));
         }
     }
@@ -413,7 +420,7 @@ async fn get_mock_stylesheet(
     execution_context: Vc<ExecutionContext>,
 ) -> Result<Option<Vc<String>>> {
     let response_path = Path::new(&mocked_responses_path);
-    let mock_fs = Vc::upcast(DiskFileSystem::new(
+    let mock_fs = Vc::upcast::<Box<dyn FileSystem>>(DiskFileSystem::new(
         "mock".to_string(),
         response_path
             .parent()
@@ -429,18 +436,20 @@ async fn get_mock_stylesheet(
         chunking_context,
     } = *execution_context.await?;
     let context = node_evaluate_asset_context(execution_context, None, None);
-    let loader_path = mock_fs.root().join("loader.js");
+    let loader_path = mock_fs.root().join("loader.js".to_string());
     let mocked_response_asset = context.process(
         Vc::upcast(VirtualAsset::new(
             loader_path,
-            File::from(format!(
-                "import data from './{}'; export default function load() {{ return data; }};",
-                response_path
-                    .file_name()
-                    .context("Must exist")?
-                    .to_string_lossy(),
-            ))
-            .into(),
+            AssetContent::file(
+                File::from(format!(
+                    "import data from './{}'; export default function load() {{ return data; }};",
+                    response_path
+                        .file_name()
+                        .context("Must exist")?
+                        .to_string_lossy(),
+                ))
+                .into(),
+            ),
         )),
         Value::new(ReferenceType::Internal(InnerAssets::empty())),
     );

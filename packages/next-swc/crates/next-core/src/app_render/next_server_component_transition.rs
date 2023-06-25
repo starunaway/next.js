@@ -61,17 +61,19 @@ impl Transition for NextServerComponentTransition {
             bail!("Not an ecmascript module");
         };
 
-        Ok(WithChunkingContextScopeAsset {
-            asset: WithClientChunksAsset {
-                asset,
-                // next.js code already adds _next prefix
-                server_root: self.server_root.join("_next"),
+        Ok(Vc::upcast(
+            WithChunkingContextScopeAsset {
+                asset: Vc::upcast(
+                    WithClientChunksAsset {
+                        asset,
+                        // next.js code already adds _next prefix
+                        server_root: self.server_root.join("_next".to_string()),
+                    }
+                    .cell(),
+                ),
+                layer: "rsc".to_string(),
             }
-            .cell()
-            .into(),
-            layer: "rsc".to_string(),
-        }
-        .cell()
-        .into())
+            .cell(),
+        ))
     }
 }

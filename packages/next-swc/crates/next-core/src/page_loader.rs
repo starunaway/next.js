@@ -15,7 +15,7 @@ use turbopack_binding::{
             context::AssetContext,
             ident::AssetIdent,
             reference::{AssetReferences, SingleAssetReference},
-            reference_type::{EntryReferenceSubType, InnerAssets, ReferenceType},
+            reference_type::{EntryReferenceSubType, ReferenceType},
             virtual_asset::VirtualAsset,
         },
         dev_server::source::{asset_graph::AssetGraphContentSource, ContentSource},
@@ -44,7 +44,7 @@ pub async fn create_page_loader(
 
     Ok(Vc::upcast(AssetGraphContentSource::new_lazy(
         server_root,
-        asset.into(),
+        Vc::upcast(asset),
     )))
 }
 
@@ -70,7 +70,7 @@ pub async fn create_page_loader_entry_asset(
         StringifyJs(&*pathname.await?)
     )?;
 
-    let page_loader_path = next_js_file_path("entry/page-loader.ts");
+    let page_loader_path = next_js_file_path("entry/page-loader.ts".to_string());
     let base_code = page_loader_path.read();
     if let FileContent::Content(base_file) = &*base_code.await? {
         result += base_file.content()
@@ -80,7 +80,10 @@ pub async fn create_page_loader_entry_asset(
 
     let file = File::from(result.build());
 
-    let virtual_asset = Vc::upcast(VirtualAsset::new(page_loader_path, file.into()));
+    let virtual_asset = Vc::upcast(VirtualAsset::new(
+        page_loader_path,
+        AssetContent::file(file.into()),
+    ));
 
     Ok(client_context.process(
         virtual_asset,
@@ -130,7 +133,7 @@ fn page_loader_chunk_reference_description() -> Vc<String> {
 impl Asset for PageLoaderAsset {
     #[turbo_tasks::function]
     async fn ident(&self) -> Result<Vc<AssetIdent>> {
-        Ok(AssetIdent::from_path(self.server_root.join(&format!(
+        Ok(AssetIdent::from_path(self.server_root.join(format!(
             "_next/static/chunks/pages{}",
             get_asset_path_from_pathname(&self.pathname.await?, ".js")
         ))))
@@ -153,7 +156,7 @@ impl Asset for PageLoaderAsset {
             StringifyJs(&chunks_data)
         );
 
-        Ok(AssetContent::from(File::from(content)))
+        Ok(AssetContent::file(File::from(content).into()))
     }
 
     #[turbo_tasks::function]

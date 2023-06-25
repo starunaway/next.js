@@ -1,15 +1,11 @@
-use anyhow::Result;
 use indexmap::indexmap;
 use turbo_tasks::Vc;
 use turbopack_binding::{
     turbo::tasks::Value,
     turbopack::{
         core::{
-            asset::Asset,
-            context::AssetContext,
-            plugin::CustomModuleType,
-            reference_type::{InnerAssets, ReferenceType},
-            resolve::ModulePart,
+            asset::Asset, context::AssetContext, plugin::CustomModuleType,
+            reference_type::ReferenceType, resolve::ModulePart,
         },
         r#static::StaticModuleAsset,
     },
@@ -48,14 +44,15 @@ impl StructuredImageModuleType {
     ) -> Vc<Box<dyn Asset>> {
         let static_asset = StaticModuleAsset::new(source, context);
         context.process(
-            StructuredImageSourceAsset {
-                image: source,
-                blur_placeholder_mode,
-            }
-            .cell()
-            .into(),
+            Vc::upcast(
+                StructuredImageSourceAsset {
+                    image: source,
+                    blur_placeholder_mode,
+                }
+                .cell(),
+            ),
             Value::new(ReferenceType::Internal(Vc::cell(indexmap!(
-                "IMAGE".to_string() => static_asset.into()
+                "IMAGE".to_string() => Vc::upcast(static_asset)
             )))),
         )
     }

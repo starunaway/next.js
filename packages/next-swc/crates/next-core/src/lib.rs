@@ -2,6 +2,8 @@
 #![allow(rustc::untranslatable_diagnostic_trivial)]
 #![feature(async_closure)]
 #![feature(min_specialization)]
+#![feature(arbitrary_self_types)]
+#![feature(async_fn_in_trait)]
 
 mod app_render;
 mod app_segment_config;

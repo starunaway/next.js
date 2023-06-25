@@ -51,8 +51,8 @@ impl PagesBuildClientContext {
         Ok(DevChunkingContext::builder(
             this.project_root,
             this.client_root,
-            this.client_root.join("static/chunks"),
-            this.client_root.join("static/media"),
+            this.client_root.join("static/chunks".to_string()),
+            this.client_root.join("static/media".to_string()),
             this.client_asset_context.compile_time_info().environment(),
         )
         .build())
@@ -80,7 +80,7 @@ impl PagesBuildClientContext {
         Ok(client_chunking_context.evaluated_chunk_group(
             client_module_asset.as_root_chunk(client_chunking_context),
             this.client_runtime_entries
-                .with_entry(client_module_asset.into()),
+                .with_entry(Vc::upcast(client_module_asset)),
         ))
     }
 }

@@ -141,11 +141,11 @@ pub async fn find_pages_structure(
     next_router_root: Vc<FileSystemPath>,
     next_config: Vc<NextConfig>,
 ) -> Result<Vc<OptionPagesStructure>> {
-    let pages_root = project_root.join("pages");
+    let pages_root = project_root.join("pages".to_string());
     let pages_root = if *pages_root.get_type().await? == FileSystemEntryType::Directory {
         pages_root
     } else {
-        let src_pages_root = project_root.join("src/pages");
+        let src_pages_root = project_root.join("src/pages".to_string());
         if *src_pages_root.get_type().await? == FileSystemEntryType::Directory {
             src_pages_root
         } else {
@@ -190,21 +190,21 @@ async fn get_pages_structure_for_root_directory(
                         "_app" => {
                             let _ = app_item.insert(PagesStructureItem::new(
                                 *file_project_path,
-                                next_router_path.join("_app"),
+                                next_router_path.join("_app".to_string()),
                                 specificity,
                             ));
                         }
                         "_document" => {
                             let _ = document_item.insert(PagesStructureItem::new(
                                 *file_project_path,
-                                next_router_path.join("_document"),
+                                next_router_path.join("_document".to_string()),
                                 specificity,
                             ));
                         }
                         "_error" => {
                             let _ = error_item.insert(PagesStructureItem::new(
                                 *file_project_path,
-                                next_router_path.join("_error"),
+                                next_router_path.join("_error".to_string()),
                                 specificity,
                             ));
                         }
@@ -227,7 +227,7 @@ async fn get_pages_structure_for_root_directory(
                     "api" => {
                         let _ = api_directory.insert(get_pages_structure_for_directory(
                             *dir_project_path,
-                            next_router_path.join(name),
+                            next_router_path.join(name.clone()),
                             specificity,
                             1,
                             page_extensions,
@@ -239,7 +239,7 @@ async fn get_pages_structure_for_root_directory(
                             name,
                             get_pages_structure_for_directory(
                                 *dir_project_path,
-                                next_router_path.join(name),
+                                next_router_path.join(name.clone()),
                                 specificity,
                                 1,
                                 page_extensions,
@@ -260,8 +260,8 @@ async fn get_pages_structure_for_root_directory(
         app_item
     } else {
         PagesStructureItem::new(
-            next_js_file_path("entry/pages/_app.tsx"),
-            next_router_path.join("_app"),
+            next_js_file_path("entry/pages/_app.tsx".to_string()),
+            next_router_path.join("_app".to_string()),
             specificity,
         )
     };
@@ -270,8 +270,8 @@ async fn get_pages_structure_for_root_directory(
         document_item
     } else {
         PagesStructureItem::new(
-            next_js_file_path("entry/pages/_document.tsx"),
-            next_router_path.join("_document"),
+            next_js_file_path("entry/pages/_document.tsx".to_string()),
+            next_router_path.join("_document".to_string()),
             specificity,
         )
     };
@@ -280,8 +280,8 @@ async fn get_pages_structure_for_root_directory(
         error_item
     } else {
         PagesStructureItem::new(
-            next_js_file_path("entry/pages/_error.tsx"),
-            next_router_path.join("_error"),
+            next_js_file_path("entry/pages/_error.tsx".to_string()),
+            next_router_path.join("_error".to_string()),
             specificity,
         )
     };
@@ -328,7 +328,7 @@ async fn get_pages_structure_for_directory(
                     };
                     let next_router_path = match basename {
                         "index" => next_router_path,
-                        _ => next_router_path.join(basename),
+                        _ => next_router_path.join(basename.to_string()),
                     };
                     items.push((
                         basename,
@@ -340,7 +340,7 @@ async fn get_pages_structure_for_directory(
                         name,
                         get_pages_structure_for_directory(
                             *dir_project_path,
-                            next_router_path.join(name),
+                            next_router_path.join(name.clone()),
                             specificity,
                             position + 1,
                             page_extensions,
@@ -393,6 +393,6 @@ fn next_router_path_for_basename(
     if basename == "index" {
         next_router_path
     } else {
-        next_router_path.join(basename)
+        next_router_path.join(basename.to_string())
     }
 }
