@@ -43,7 +43,7 @@ use crate::{
     next_import_map::{get_next_server_import_map, mdx_import_source_file},
     next_server::resolve::ExternalPredicate,
     next_shared::{
-        resolve::UnsupportedModulesResolvePluginVc,
+        resolve::{ModuleFeatureReportResolvePluginVc, UnsupportedModulesResolvePluginVc},
         transforms::{
             emotion::get_emotion_transform_plugin, get_relay_transform_plugin,
             styled_components::get_styled_components_transform_plugin,
@@ -81,6 +81,10 @@ pub async fn get_server_resolve_options_context(
         get_next_server_import_map(project_path, ty, next_config, execution_context);
     let foreign_code_context_condition = foreign_code_context_condition(next_config).await?;
     let root_dir = project_path.root().resolve().await?;
+    let module_feature_report_resolve_plugin = ModuleFeatureReportResolvePluginVc::new(
+        project_path,
+        StringVc::cell("next_server".to_string()),
+    );
     let unsupported_modules_resolve_plugin = UnsupportedModulesResolvePluginVc::new(project_path);
     let server_component_externals_plugin = ExternalCjsModulesResolvePluginVc::new(
         project_path,
@@ -103,6 +107,7 @@ pub async fn get_server_resolve_options_context(
                 import_map: Some(next_server_import_map),
                 plugins: vec![
                     external_cjs_modules_plugin.into(),
+                    module_feature_report_resolve_plugin.into(),
                     unsupported_modules_resolve_plugin.into(),
                 ],
                 ..Default::default()
@@ -131,6 +136,7 @@ pub async fn get_server_resolve_options_context(
                 import_map: Some(next_server_import_map),
                 plugins: vec![
                     server_component_externals_plugin.into(),
+                    module_feature_report_resolve_plugin.into(),
                     unsupported_modules_resolve_plugin.into(),
                 ],
                 ..Default::default()
@@ -160,6 +166,7 @@ pub async fn get_server_resolve_options_context(
                 import_map: Some(next_server_import_map),
                 plugins: vec![
                     server_component_externals_plugin.into(),
+                    module_feature_report_resolve_plugin.into(),
                     unsupported_modules_resolve_plugin.into(),
                 ],
                 ..Default::default()
@@ -182,6 +189,7 @@ pub async fn get_server_resolve_options_context(
                 import_map: Some(next_server_import_map),
                 plugins: vec![
                     server_component_externals_plugin.into(),
+                    module_feature_report_resolve_plugin.into(),
                     unsupported_modules_resolve_plugin.into(),
                 ],
                 ..Default::default()
@@ -202,7 +210,10 @@ pub async fn get_server_resolve_options_context(
                 enable_node_externals: true,
                 module: true,
                 custom_conditions: vec![mode.node_env().to_string()],
-                plugins: vec![unsupported_modules_resolve_plugin.into()],
+                plugins: vec![
+                    module_feature_report_resolve_plugin.into(),
+                    unsupported_modules_resolve_plugin.into(),
+                ],
                 ..Default::default()
             };
             ResolveOptionsContext {

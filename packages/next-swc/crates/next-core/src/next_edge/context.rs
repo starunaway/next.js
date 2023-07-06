@@ -1,5 +1,5 @@
 use anyhow::Result;
-use turbo_tasks::Value;
+use turbo_tasks::{primitives::StringVc, Value};
 use turbopack_binding::{
     turbo::tasks_fs::FileSystemPathVc,
     turbopack::{
@@ -20,9 +20,11 @@ use turbopack_binding::{
 };
 
 use crate::{
-    next_config::NextConfigVc, next_import_map::get_next_edge_import_map,
+    next_config::NextConfigVc,
+    next_import_map::get_next_edge_import_map,
     next_server::context::ServerContextType,
-    next_shared::resolve::UnsupportedModulesResolvePluginVc, util::foreign_code_context_condition,
+    next_shared::resolve::{ModuleFeatureReportResolvePluginVc, UnsupportedModulesResolvePluginVc},
+    util::foreign_code_context_condition,
 };
 
 fn defines() -> CompileTimeDefines {
@@ -93,7 +95,14 @@ pub async fn get_edge_resolve_options_context(
         import_map: Some(next_edge_import_map),
         module: true,
         browser: true,
-        plugins: vec![UnsupportedModulesResolvePluginVc::new(project_path).into()],
+        plugins: vec![
+            ModuleFeatureReportResolvePluginVc::new(
+                project_path,
+                StringVc::cell("next_edge".to_string()),
+            )
+            .into(),
+            UnsupportedModulesResolvePluginVc::new(project_path).into(),
+        ],
         ..Default::default()
     };
 

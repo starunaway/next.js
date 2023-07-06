@@ -53,7 +53,7 @@ use crate::{
         get_next_client_resolved_map, mdx_import_source_file,
     },
     next_shared::{
-        resolve::UnsupportedModulesResolvePluginVc,
+        resolve::{ModuleFeatureReportResolvePluginVc, UnsupportedModulesResolvePluginVc},
         transforms::{
             emotion::get_emotion_transform_plugin, get_relay_transform_plugin,
             styled_components::get_styled_components_transform_plugin,
@@ -150,7 +150,14 @@ pub async fn get_client_resolve_options_context(
         resolved_map: Some(next_client_resolved_map),
         browser: true,
         module: true,
-        plugins: vec![UnsupportedModulesResolvePluginVc::new(project_path).into()],
+        plugins: vec![
+            ModuleFeatureReportResolvePluginVc::new(
+                project_path,
+                StringVc::cell("next_client".to_string()),
+            )
+            .into(),
+            UnsupportedModulesResolvePluginVc::new(project_path).into(),
+        ],
         ..Default::default()
     };
     Ok(ResolveOptionsContext {
