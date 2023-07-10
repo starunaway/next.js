@@ -28,8 +28,8 @@ lazy_static! {
             "next",
             vec![
                 "/image",
-                "future/image",
-                "legacy/image",
+                "/future/image",
+                "/legacy/image",
                 "/script",
                 "/dynamic",
                 "/font/google",
@@ -37,8 +37,7 @@ lazy_static! {
             ]
         ),
         ("@next", vec!["/font/google", "/font/local"])
-    ])
-    .into();
+    ]);
 }
 
 #[turbo_tasks::value]

@@ -27,6 +27,7 @@ mod next_import_map;
 mod next_route_matcher;
 pub mod next_server;
 pub mod next_shared;
+mod next_telemetry;
 mod page_loader;
 mod page_source;
 pub mod pages_structure;
@@ -38,7 +39,6 @@ mod transform_options;
 pub mod url_node;
 mod util;
 mod web_entry_source;
-mod next_telemetry;
 
 pub use app_source::create_app_source;
 pub use page_loader::create_page_loader_entry_asset;
