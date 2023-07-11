@@ -111,7 +111,11 @@ pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Resu
     let execution_context = ExecutionContextVc::new(project_root, build_chunking_context, env);
     let next_config = load_next_config(execution_context.with_layer("next_config"));
 
-    let pages_structure = find_pages_structure(project_root, next_router_root, next_config);
+    let pages_structure = find_pages_structure(
+        project_root,
+        next_router_root,
+        next_config.page_extensions(),
+    );
 
     let page_chunks = get_page_chunks(
         pages_structure,
