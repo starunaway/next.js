@@ -18,6 +18,7 @@ import {
 import { IconsMetadata } from './generate/icons'
 import { accumulateMetadata, resolveMetadata } from './resolve-metadata'
 import { MetaFilter } from './generate/meta'
+import { ClientMetadataWrap } from './metadata-client'
 
 // Generate the actual React elements from the resolved metadata.
 export async function MetadataTree({
@@ -25,11 +26,13 @@ export async function MetadataTree({
   pathname,
   searchParams,
   getDynamicParamFromSegment,
+  requestId,
 }: {
   tree: LoaderTree
   pathname: string
   searchParams: { [key: string]: any }
   getDynamicParamFromSegment: GetDynamicParamFromSegment
+  requestId: string
 }) {
   const metadataContext = {
     pathname,
@@ -56,11 +59,13 @@ export async function MetadataTree({
     IconsMetadata({ icons: metadata.icons }),
   ])
 
+  // const children =
+
   return (
-    <>
+    <ClientMetadataWrap key={requestId}>
       {elements.map((el, index) => {
         return React.cloneElement(el as React.ReactElement, { key: index })
       })}
-    </>
+    </ClientMetadataWrap>
   )
 }
